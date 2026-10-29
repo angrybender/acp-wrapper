@@ -1,0 +1,12 @@
+acp-wrapper
+
+Reproducible patch fork of agentclientprotocol/claude-agent-acp 0.96.0.
+Upstream: https://github.com/agentclientprotocol/claude-agent-acp
+Pinned commit: f6958db1ee8d3e9ead6767a3a294f98b9a21adb9
+
+Upstream code is licensed under the Apache License, Version 2.0.
+This repository distributes modifications as background-drain.patch;
+modified files and regression tests are identified in that patch.
+The patch, installer and accompanying examples are distributed under
+the Apache License, Version 2.0; see LICENSE.
+Upstream source and license are retained in installed packages.

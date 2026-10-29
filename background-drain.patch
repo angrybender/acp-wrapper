@@ -1,0 +1,246 @@
+diff --git a/src/acp-agent.ts b/src/acp-agent.ts
+index 56879a7..75fcfcd 100644
+--- a/src/acp-agent.ts
++++ b/src/acp-agent.ts
+@@ -1023,6 +1023,9 @@ export type Session = {
+   cancelledPrompts?: Set<string>;
+   /** FIFO of in-flight prompts. The head is the turn the SDK is currently
+    *  processing; later entries are queued and will be echoed in order. */
++  backgroundRevision?: number;
++  backgroundClosing?: boolean;
++  backgroundProcessing?: boolean;
+   turnQueue?: Turn[];
+   /** The turn whose messages the consumer is currently attributing output to
+    *  (the head of `turnQueue` once its user message has been echoed). */
+@@ -3024,6 +3027,7 @@ export class ClaudeAcpAgent {
+       // Only AIR gets the AIR capabilities and the goal capability, under
+       // `jetbrains.air`.
+       _meta: {
++        ...(this.backgroundDrainEnabled() ? { orchestratorBackgroundTasks: { version: 1 } } : {}),
+         ...(this.toolCallCapabilities.air.client
+           ? withAirMeta(
+               airSessionFailureCapabilityMeta(
+@@ -3804,6 +3808,7 @@ export class ClaudeAcpAgent {
+   async startTurn(params: PromptRequest, events: TurnEvents): Promise<void> {
+     while (this.providerUpdate) await this.providerUpdate;
+     let session = this.sessions[params.sessionId];
++    if (session?.backgroundClosing) throw new Error("Session is closing");
+     if (!session) {
+       throw new Error("Session not found");
+     }
+@@ -4587,6 +4592,7 @@ export class ClaudeAcpAgent {
+       params.sessionId,
+       async (notification) => this.client.sessionUpdate(asSdkSessionNotification(notification)),
+       {
++        strictCompletion: this.backgroundDrainEnabled(),
+         notices: supportsNotices,
+         // A task that a subagent tool call started belongs to the child
+         // session of that tool call, like the tool call itself.
+@@ -5717,6 +5723,7 @@ export class ClaudeAcpAgent {
+ 
+     try {
+       while (true) {
++        session.backgroundProcessing = false;
+         // A backlog of buffered SDK messages drains without a macrotask
+         // boundary (each await resolves in a microtask), which would starve
+         // timers and incoming requests, `session/cancel` among them, until
+@@ -5884,6 +5891,9 @@ export class ClaudeAcpAgent {
+           return;
+         }
+ 
++        session.backgroundProcessing = true;
++        session.backgroundRevision = (session.backgroundRevision ?? 0) + 1;
++
+         if (
+           session.emitRawSDKMessages &&
+           shouldEmitRawMessage(session.emitRawSDKMessages, message)
+@@ -9132,6 +9142,51 @@ export class ClaudeAcpAgent {
+     await Promise.all(Object.keys(this.sessions).map((id) => this.teardownSession(id)));
+   }
+ 
++  private backgroundDrainEnabled(): boolean {
++    return this.clientCapabilities?._meta?.orchestratorBackgroundTasks === 1;
++  }
++
++  /** Read and seal share a synchronous check; no cancellation on a busy close. */
++  async backgroundDrain(params: { sessionId: string; token?: string; close?: boolean }) {
++    if (!this.backgroundDrainEnabled()) throw new Error("Background drain was not negotiated");
++    const session = this.sessions[params.sessionId];
++    if (!session || session.queryClosed || session.tornDown) throw new Error("Session is not live");
++    const tasks = session.asyncTaskRuntime?.backgroundSnapshot() ?? [];
++    const children = [...(session.nativeSubagentsByTaskId?.values() ?? [])];
++    const modelBusy =
++      session.backgroundProcessing === true ||
++      this.foregroundWork.has(params.sessionId) ||
++      (session.turnQueue ?? []).some((turn) => !turn.settled) ||
++      tasks.some((task) => task.autonomous && task.state === "running");
++    const pending =
++      modelBusy ||
++      tasks.some((task) => task.state === "running" || task.state === "paused") ||
++      children.some((child) => !child.terminalState) ||
++      (session.turnQueue ?? []).some((turn) => !turn.settled) ||
++      this.foregroundWork.has(params.sessionId) ||
++      session.lastSessionState === "running";
++    const token = JSON.stringify([
++      session.backgroundRevision ?? 0,
++      tasks,
++      children.map((child) => [child.sessionId, child.terminalState]),
++    ]);
++    const result = {
++      version: 1,
++      sessionId: params.sessionId,
++      pending,
++      modelBusy,
++      token,
++      tasks,
++      closed: false,
++    };
++    if (params.close && !pending && params.token === token) {
++      session.backgroundClosing = true;
++      await this.teardownSession(params.sessionId);
++      result.closed = true;
++    }
++    return result;
++  }
++
+   /** Idempotent: a session that is not loaded here is already closed. */
+   async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
+     if (!this.sessions[params.sessionId]) {
+@@ -14039,6 +14094,31 @@ export function v1AgentApp(
+       { parse: parseAsyncTaskStopRequest },
+       (ctx) => agent.stopAsyncTask(ctx.params),
+     )
++    .onRequest<
++      { sessionId: string; token?: string; close?: boolean },
++      Awaited<ReturnType<ClaudeAcpAgent["backgroundDrain"]>>
++    >(
++      "_orchestrator/background",
++      {
++        parse: (value: unknown) => {
++          if (
++            !value ||
++            typeof value !== "object" ||
++            typeof (value as { sessionId?: unknown }).sessionId !== "string"
++          ) {
++            throw new Error("Invalid background drain request");
++          }
++          const params = value as { sessionId: string; token?: string; close?: boolean };
++          if (
++            (params.close !== undefined && typeof params.close !== "boolean") ||
++            (params.token !== undefined && typeof params.token !== "string")
++          )
++            throw new Error("Invalid background drain request");
++          return params;
++        },
++      },
++      (ctx) => agent.backgroundDrain(ctx.params),
++    )
+     .onRequest<GoalRequest, GoalControlResponse>(
+       GOAL_CONTROL_METHOD,
+       { parse: parseGoalRequest },
+diff --git a/src/async-tasks.ts b/src/async-tasks.ts
+index 3c390dc..b20c762 100644
+--- a/src/async-tasks.ts
++++ b/src/async-tasks.ts
+@@ -144,12 +144,24 @@ export class AsyncTaskRuntime {
+      *  call, or `undefined` when the tool call is unknown. A task that a
+      *  `Monitor` tool call started is ignored. */
+     private readonly options: {
++      strictCompletion?: boolean;
+       notices?: boolean;
+       routeOf?: (toolCallId: string) => Route | undefined;
+       toolNameOf?: (toolCallId: string) => string | undefined;
+     } = {},
+   ) {}
+ 
++  /** Snapshot includes held tasks, before their spawn reaches the client. */
++  backgroundSnapshot() {
++    return [...this.tasks.values()]
++      .filter((task) => !task.ignored && (task.startedObserved || task.announced || task.held))
++      .map((task) => ({
++        id: task.id,
++        state: task.state,
++        autonomous: task.autonomousTurn,
++      }));
++  }
++
+   async taskStarted(message: AsyncTaskStarted): Promise<void> {
+     if (!this.enabled) return;
+     const taskId = taskIdOf(message);
+@@ -385,7 +397,9 @@ export class AsyncTaskRuntime {
+         // follows its terminal edges, so this is a lost or late edge; a late
+         // task_notification still corrects the best-effort stopped state to
+         // completed/failed.
+-        await this.finish(task, "stopped", undefined, "level");
++        if (!this.options.strictCompletion) {
++          await this.finish(task, "stopped", undefined, "level");
++        }
+       }
+     }
+   }
+diff --git a/src/tests/acp-agent.test.ts b/src/tests/acp-agent.test.ts
+index c21e675..72e9ee5 100644
+--- a/src/tests/acp-agent.test.ts
++++ b/src/tests/acp-agent.test.ts
+@@ -13946,6 +13946,41 @@ describe("session/close", () => {
+     return agent.sessions[sessionId]!;
+   }
+ 
++  it("conditional close rejects busy work and a stale generation without interrupting", async () => {
++    const agent = createMockAgent();
++    (agent as any).clientCapabilities = { _meta: { orchestratorBackgroundTasks: 1 } };
++    const session = injectSession(agent, "session-1");
++    const first = await agent.backgroundDrain({ sessionId: "session-1" });
++    session.lastSessionState = "running";
++    expect(
++      (await agent.backgroundDrain({ sessionId: "session-1", close: true, token: first.token }))
++        .closed,
++    ).toBe(false);
++    expect(session.query.interrupt).not.toHaveBeenCalled();
++    session.lastSessionState = "idle";
++    session.backgroundRevision = 1;
++    expect(
++      (await agent.backgroundDrain({ sessionId: "session-1", close: true, token: first.token }))
++        .closed,
++    ).toBe(false);
++    expect(session.query.interrupt).not.toHaveBeenCalled();
++    const stable = await agent.backgroundDrain({ sessionId: "session-1" });
++    expect(
++      (await agent.backgroundDrain({ sessionId: "session-1", close: true, token: stable.token }))
++        .closed,
++    ).toBe(true);
++    expect(agent.sessions["session-1"]).toBeUndefined();
++  });
++
++  it("refuses background drain without negotiation", async () => {
++    const agent = createMockAgent();
++    injectSession(agent, "session-1");
++    await expect(agent.backgroundDrain({ sessionId: "session-1" })).rejects.toThrow(
++      "not negotiated",
++    );
++    await agent.closeSession({ sessionId: "session-1" });
++  });
++
+   it("should close an existing session and remove it", async () => {
+     const agent = createMockAgent();
+     const session = injectSession(agent, "session-1");
+diff --git a/src/tests/async-tasks.test.ts b/src/tests/async-tasks.test.ts
+index e0f1c32..f47912a 100644
+--- a/src/tests/async-tasks.test.ts
++++ b/src/tests/async-tasks.test.ts
+@@ -7,6 +7,15 @@ import {
+ } from "../async-tasks.js";
+ 
+ describe("AsyncTaskRuntime", () => {
++  it("strict drain keeps a missing task live until its terminal notification", async () => {
++    const runtime = new AsyncTaskRuntime(true, "root", async () => {}, { strictCompletion: true });
++    await runtime.taskStarted({ taskId: "job", taskType: "local_bash", toolCallId: "bash" });
++    await runtime.backgroundTasksChanged([]);
++    expect(runtime.backgroundSnapshot()).toMatchObject([{ id: "job", state: "running" }]);
++    await runtime.taskNotification("job", "completed", "done");
++    expect(runtime.backgroundSnapshot()).toMatchObject([{ id: "job", state: "completed" }]);
++  });
++
+   it("keeps an autonomous turn open across the SDK task list and fails it at shutdown", async () => {
+     const updates: AcpSessionNotification[] = [];
+     const runtime = new AsyncTaskRuntime(true, "root", async (notification) => {
