@@ -1,2 +1,5 @@
+src/tests/acp-scenarios/__snapshots__/** linguist-generated=true
+src/tests/acp-scenarios/origin-main/** linguist-generated=true
+
 # Empty context lines in a unified diff contain a significant space.
 *.patch whitespace=-blank-at-eol

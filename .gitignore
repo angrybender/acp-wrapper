@@ -1,3 +1,10 @@
+node_modules
+dist
+.DS_Store
+.claude/*.local.*
+CLAUDE.local.md
+.idea/
+# Fork installation helpers
 __pycache__/
 *.py[cod]
 node_modules/

@@ -2,13 +2,14 @@
 
 Форк **Claude Agent ACP** с явным ожиданием нативных фоновых задач и условным закрытием сессии. Предназначен для ACP-клиентов и оркестраторов, которым важно дождаться не только первого `end_turn`, но и завершения фоновой работы Claude.
 
-Репозиторий содержит **воспроизводимый patch-форк**: installer скачивает закреплённый upstream, проверяет commit, применяет патч и собирает отдельный executable. Исходники upstream, `node_modules` и собранный `dist` в этот репозиторий не копируются.
+Репозиторий содержит **полную копию исходной кодовой базы upstream 0.96.0 с уже применённым патчем**: `src/`, тесты, lock-файл, build-конфигурацию, документацию и scripts. Installer собирает код прямо из этого checkout и устанавливает отдельный executable. Дополнительный upstream checkout не скачивается. `background-drain.patch` сохранён отдельно для сравнения и воспроизведения изменений; повторно применять его к этому репозиторию не нужно. Генерируемые `node_modules` и `dist` в Git не хранятся.
 
 - Upstream: [agentclientprotocol/claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp).
 - Базовая версия: **0.96.0**.
 - Закреплённый commit: [`f6958db1ee8d3e9ead6767a3a294f98b9a21adb9`](https://github.com/agentclientprotocol/claude-agent-acp/tree/f6958db1ee8d3e9ead6767a3a294f98b9a21adb9).
 - Собственное расширение: `orchestratorBackgroundTasks`, версия **1**, поверх **ACP v1**.
 - Лицензия: [Apache-2.0](LICENSE), сведения об upstream — [NOTICE](NOTICE).
+- Происхождение исходников и SHA256 патча: [UPSTREAM.json](UPSTREAM.json). Исходный README сохранён в [README.upstream.md](README.upstream.md).
 
 ## Что изменено
 
@@ -26,14 +27,14 @@
 
 Проверенная среда — Linux, Bash и Node.js 22. Нужны:
 
-| Компонент | Требование |
-| --- | --- |
-| Node.js | 22 или новее |
-| npm | Доступен в PATH вместе с Node.js |
-| Python | Python 3, только стандартная библиотека для installer |
-| Git | Доступен в PATH |
-| Сеть | Доступ к GitHub и npm registry при установке; к провайдеру при работе |
-| Права | Запись в выбранные `--prefix` и каталог `--bin` |
+| Компонент | Требование                                                                                 |
+| --------- | ------------------------------------------------------------------------------------------ |
+| Node.js   | 22 или новее                                                                               |
+| npm       | Доступен в PATH вместе с Node.js                                                           |
+| Python    | Python 3, только стандартная библиотека для installer                                      |
+| Git       | Для клонирования и записи commit сборки; при установке из полного ZIP-архива необязателен  |
+| Сеть      | Доступ к GitHub для клонирования, к npm registry для зависимостей; к провайдеру при работе |
+| Права     | Запись в выбранные `--prefix` и каталог `--bin`                                            |
 
 Проверьте окружение:
 
@@ -61,27 +62,53 @@ python3 ./install.py --test \
 
 Installer:
 
-1. Клонирует upstream tag `v0.96.0` во временный каталог рядом с destination.
-2. Проверяет, что HEAD совпадает с закреплённым commit.
-3. Проверяет и применяет `background-drain.patch`.
-4. Устанавливает зависимости через `npm ci --ignore-scripts` и собирает TypeScript.
-5. При `--test` запускает проверки.
-6. Переносит `dist`, package/lock-файлы, upstream README и LICENSE в staging installation; устанавливает только production dependencies.
-7. Делает entry point исполняемым, проверяет `--version`, записывает `FORK.json` и атомарно перемещает installation в `--prefix`.
-8. Создаёт symlink `--bin`, если он указан. Временный build-каталог удаляется автоматически.
+1. Проверяет наличие локального `src/`, `UPSTREAM.json` и SHA256 сохранённого патча.
+2. Копирует исходники и build inputs из текущего checkout в отдельный временный каталог рядом с destination. История Git, credentials, `node_modules` и `dist` не копируются.
+3. Устанавливает зависимости через `npm ci --ignore-scripts` и собирает TypeScript. Патч уже применён к исходникам; повторное применение и сетевой checkout upstream не выполняются.
+4. При `--test` запускает lint, format и ACP/async-task регрессии.
+5. Собирает installation с `dist`, package/lock-файлами, README, лицензией и provenance; устанавливает только production dependencies.
+6. Делает entry point исполняемым, проверяет `--version`, записывает `FORK.json` и атомарно перемещает installation в `--prefix`.
+7. Создаёт symlink `--bin`, если он указан. Временный build-каталог удаляется автоматически.
 
-**Существующие `--prefix` и `--bin` не перезаписываются.** Если путь занят, используйте новый prefix/bin; инструкция обновления приведена ниже. Upstream CLI и пользовательская авторизация не заменяются.
+**Существующие `--prefix` и `--bin` не перезаписываются.** Если путь занят, используйте новый prefix/bin; инструкция обновления приведена ниже. Установленный upstream CLI и пользовательская авторизация не заменяются.
+
+### Сборка напрямую через npm
+
+Полную кодовую базу можно собирать и изменять без Python-installer:
+
+```bash
+git clone https://github.com/angrybender/acp-wrapper.git
+cd acp-wrapper
+npm ci --ignore-scripts
+npm run build
+node dist/index.js --version
+```
+
+Запуск ACP-сервера из checkout:
+
+```bash
+node dist/index.js
+```
+
+Сервер ждёт JSON-RPC на stdin; команду запуска обычно вызывает ACP-клиент. Для разработки доступны:
+
+```bash
+npm run check
+npm run test:run -- src/tests/async-tasks.test.ts src/tests/acp-agent.test.ts
+```
+
+`npm run test:run` запускает полный upstream-набор; известные особенности его проверки описаны в [docs/testing.md](docs/testing.md). Провайдер и права tools настраиваются окружением/конфигурацией Claude SDK так же, как для установленного runtime.
 
 ### Параметры installer
 
-| Параметр | Значение |
-| --- | --- |
-| `--prefix PATH` | Каталог готового runtime. Default: `~/.local/share/claude-acp-background-0.96.0-r1` |
-| `--bin PATH` | Необязательный symlink на executable. Без параметра запускайте entry point по полному пути |
-| `--test` | Lint/format и ACP/async-task регрессии перед установкой |
-| `--help` | Справка |
+| Параметр        | Значение                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| `--prefix PATH` | Каталог готового runtime. Default: `~/.local/share/claude-acp-background-0.96.0-r1`        |
+| `--bin PATH`    | Необязательный symlink на executable. Без параметра запускайте entry point по полному пути |
+| `--test`        | Lint/format и ACP/async-task регрессии перед установкой                                    |
+| `--help`        | Справка                                                                                    |
 
-Не переносите один `install.py` без патча: `background-drain.patch` должен находиться рядом с ним. Проще клонировать репозиторий целиком.
+Installer требует полный checkout: `src/`, package/lock-файлы, конфигурацию сборки, `UPSTREAM.json` и патч. Переносить только `install.py` и patch-файл теперь недостаточно. Можно использовать полный GitHub ZIP-архив; без `.git` поля commit/dirty в provenance будут `null`.
 
 ## 3. Проверка установленного форка
 
@@ -90,7 +117,7 @@ Installer:
 cat "$HOME/.local/share/claude-acp-background-0.96.0-r1/FORK.json"
 ```
 
-`--version` выводит upstream-версию `0.96.0`. Отличить сборку форка от обычного upstream можно по `FORK.json`: он содержит upstream commit, SHA256 патча, имя контракта и его версию. Во время ACP initialize форк также подтверждает согласованное расширение.
+`--version` выводит upstream-версию `0.96.0`. Отличить сборку форка от обычного upstream можно по `FORK.json`: он содержит upstream commit, SHA256 патча, commit текущего форка (`source_revision`), признак локальных изменений (`source_dirty`), имя контракта и его версию. Во время ACP initialize форк также подтверждает согласованное расширение.
 
 Если хотите запускать команду без абсолютного пути, добавьте в shell profile, например `~/.profile`:
 
@@ -148,7 +175,7 @@ Agent timeout: 1800
 
 ## 6. Обновление и откат
 
-Обновление этого репозитория не переключает установленный runtime. Установка всегда привязана к закреплённому upstream commit и текущему патчу.
+Обновление этого репозитория не переключает установленный runtime. Installer собирает исходники текущего checkout. Upstream-база и SHA256 сохранённого патча зафиксированы в `UPSTREAM.json`; локальные изменения отмечаются в `FORK.json`.
 
 ```bash
 cd /path/to/acp-wrapper
@@ -190,19 +217,19 @@ python3 ./install.py --help
 cat "$HOME/.local/share/claude-acp-background-0.96.0-r1/FORK.json"
 ```
 
-| Симптом | Что проверить |
-| --- | --- |
-| `Destination or executable already exists` | Installer не перезаписывает установку. Выберите свободные prefix/bin или используйте процедуру обновления |
-| `node: not found`, `npm: not found` | Node/npm должны быть доступны пользователю агента, включая неинтерактивную SSH-сессию |
-| `Permission denied` | Используйте установленный entry point; installer делает его исполняемым. Собственный launcher тоже требует `chmod +x` |
-| `Upstream tag no longer matches...` | Commit tag отличается от закреплённого. Проверка намеренно останавливает установку; не убирайте её для продолжения |
-| Обычный upstream вместо форка | Проверьте полный путь, `readlink` symlink и `FORK.json`. Глобальная установка оригинального npm-пакета не применяет этот патч |
-| Адаптер после запуска молчит | Он ждёт ACP JSON-RPC на stdin. Для проверки установки используйте `--version` |
-| Провайдер возвращает 401/ошибку URL | Проверьте ключ в окружении процесса агента, token-файл и base URL без двойного `/v1` |
-| Bash/Write получает отказ permissions | Настройте `session/request_permission` в клиенте или явно выбранный permission mode SDK |
-| Нет нового режима ожидания | Проверьте предложение и подтверждение расширения в initialize и вызовы нового RPC; одних AIR capabilities недостаточно |
-| `closed:false` | Это штатный отказ закрытия: есть работа или token устарел. Получите новый снимок и продолжайте ожидание |
-| Оставленный server/watch удерживает сессию | Модель должна штатно остановить ненужный процесс; необходимую конечную работу следует дождаться |
+| Симптом                                    | Что проверить                                                                                                                 |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `Destination or executable already exists` | Installer не перезаписывает установку. Выберите свободные prefix/bin или используйте процедуру обновления                     |
+| `node: not found`, `npm: not found`        | Node/npm должны быть доступны пользователю агента, включая неинтерактивную SSH-сессию                                         |
+| `Permission denied`                        | Используйте установленный entry point; installer делает его исполняемым. Собственный launcher тоже требует `chmod +x`         |
+| `Upstream tag no longer matches...`        | Commit tag отличается от закреплённого. Проверка намеренно останавливает установку; не убирайте её для продолжения            |
+| Обычный upstream вместо форка              | Проверьте полный путь, `readlink` symlink и `FORK.json`. Глобальная установка оригинального npm-пакета не применяет этот патч |
+| Адаптер после запуска молчит               | Он ждёт ACP JSON-RPC на stdin. Для проверки установки используйте `--version`                                                 |
+| Провайдер возвращает 401/ошибку URL        | Проверьте ключ в окружении процесса агента, token-файл и base URL без двойного `/v1`                                          |
+| Bash/Write получает отказ permissions      | Настройте `session/request_permission` в клиенте или явно выбранный permission mode SDK                                       |
+| Нет нового режима ожидания                 | Проверьте предложение и подтверждение расширения в initialize и вызовы нового RPC; одних AIR capabilities недостаточно        |
+| `closed:false`                             | Это штатный отказ закрытия: есть работа или token устарел. Получите новый снимок и продолжайте ожидание                       |
+| Оставленный server/watch удерживает сессию | Модель должна штатно остановить ненужный процесс; необходимую конечную работу следует дождаться                               |
 
 Секреты не нужны для установки или `--test`; они нужны только для реального обращения к провайдеру. Не добавляйте token-файлы и auth-конфигурацию в репозиторий.
 
@@ -213,10 +240,32 @@ cat "$HOME/.local/share/claude-acp-background-0.96.0-r1/FORK.json"
 ## Состав репозитория
 
 ```text
-install.py                 воспроизводимая сборка и установка
-background-drain.patch     изменения адаптера и upstream-регрессии
-examples/claude-routerai.sh launcher с конфигурацией RouterAI
+src/                       полная исходная кодовая база с применённым патчем
+src/tests/                 upstream-тесты и регрессии форка
+package.json               команды сборки и зависимости Node
+package-lock.json          закреплённые версии зависимостей
+tsconfig.json              конфигурация TypeScript
+vitest.config.ts           конфигурация тестов
+scripts/                   исходные вспомогательные scripts upstream
+install.py                 установка runtime из текущего checkout
+background-drain.patch     отдельный патч относительно upstream commit
+UPSTREAM.json              upstream revision, SHA256 патча и provenance
+README.upstream.md         исходный README upstream
 docs/protocol.md           handshake, RPC и поведение клиента
 docs/testing.md            результаты и ограничения проверок
+docs/upstream-workflows/   сохранённые исходные CI/release workflows
+examples/                  примеры upstream и launcher форка
 LICENSE, NOTICE            лицензия и происхождение исходников
 ```
+
+Upstream CI/release workflow-файлы сохранены в `docs/upstream-workflows/` как справочные и не активируются в GitHub Actions. В этом форке `package.json` помечен `private: true`: автоматическая публикация npm-пакетов upstream не включена. Оригинальная release-документация описывает инфраструктуру upstream.
+
+### Проверка патча
+
+Код в `src/` уже изменён. Чтобы проверить соответствие сохранённому патчу, из корня checkout выполните:
+
+```bash
+git apply --reverse --check background-drain.patch
+```
+
+Эта команда только проверяет применимость обратного патча и не меняет файлы. Для воспроизведения исходного изменения патч следует применять к чистому upstream commit из `UPSTREAM.json`, а не поверх этого форка. При дальнейшем изменении затронутой логики обновляйте патч и SHA256 в `UPSTREAM.json` вместе с кодом.

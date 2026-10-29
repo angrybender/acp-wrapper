@@ -2,7 +2,7 @@
 
 ## Что выполняет `install.py --test`
 
-Installer применяет патч к закреплённому upstream, затем запускает:
+Installer копирует исходники текущего checkout в изолированный staging и запускает:
 
 ```bash
 npm run build
@@ -33,13 +33,13 @@ npm run test:run -- src/tests/async-tasks.test.ts src/tests/acp-agent.test.ts
 
 Ниже — результаты интеграции с отдельным оркестратором, использующим этот контракт, а не автономного installer. Прогоны выполнены через SSH/ACP с `anthropic/claude-sonnet-4.6`, endpoint провайдера `https://routerai.ru/api/v1`; для Claude SDK использован base URL `https://routerai.ru/api`.
 
-| Сценарий | Результат |
-| --- | --- |
-| Native background `sleep 45`, ранний `end_turn`, чтение result-файла | Успешно: 109,68 с с quiet=3 |
-| Тот же finite job с production quiet=60 | Успешно: 156,10 с, файл независимо проверен |
-| Второе background-задание запущено в автоматическом ходе после первого | Успешно: 79,20 с, оба файла независимо проверены |
+| Сценарий                                                                | Результат                                                    |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Native background `sleep 45`, ранний `end_turn`, чтение result-файла    | Успешно: 109,68 с с quiet=3                                  |
+| Тот же finite job с production quiet=60                                 | Успешно: 156,10 с, файл независимо проверен                  |
+| Второе background-задание запущено в автоматическом ходе после первого  | Успешно: 79,20 с, оба файла независимо проверены             |
 | Ожидаемый exit 7 + disposable `sleep 180`, остановленный через TaskStop | Два успешных прогона установленной сборки: 62,78 с и 47,39 с |
-| Foreground Bash/Read через установленный executable, без фоновых задач | Успешно: 23,51 с |
+| Foreground Bash/Read через установленный executable, без фоновых задач  | Успешно: 23,51 с                                             |
 
 Успех включал итоговую проверку моделью, штатный выход ACP и подтверждение отсутствия живых процессов исходной группы без сигналов.
 
@@ -62,3 +62,31 @@ npm run test:run -- src/tests/async-tasks.test.ts src/tests/acp-agent.test.ts
 Из корня этого репозитория повторно выполнен `python3 ./install.py --test` с отдельными временными prefix/bin. Сборка, lint/format и **790 тестов** прошли; **10** пропущены. Установленный symlink запускается и выводит `0.96.0`. Проверен запуск installer по относительному пути.
 
 Пример RouterAI launcher проверен без реального ключа и без модельного запроса: Bash syntax, ключ из окружения, приоритет token-файла, аргументы/пути с пробелами, отсутствие ключа и отсутствующий token-файл. Временные installation и mock-файлы удаляются после проверки.
+
+## Полная кодовая база
+
+В репозитории сохранён полный source snapshot upstream 0.96.0 с уже применённым
+патчем. `npm ci`, `npm run build` и тесты запускаются из корня форка без
+скачивания отдельного upstream checkout. `install.py` также использует локальный
+source export; provenance включает commit форка и dirty state.
+
+Upstream workflow definitions сохранены как справочные в
+`docs/upstream-workflows/`, автоматическая release-публикация не активирована.
+Это изменение упаковки не меняет ACP-контракт или алгоритм ожидания.
+
+### Проверка полного source-форка
+
+При преобразовании репозитория в полный source-форк выполнен отдельный аудит
+закреплённого upstream tree: все **320 файлов** присутствуют. Исходные README и
+workflow definitions сохранены в указанных в `UPSTREAM.json` местах. Изменения
+в `src/` ограничены четырьмя файлами исходного патча; `git apply --reverse
+--check background-drain.patch` подтверждает его соответствие кодовой базе.
+
+Из корня полного checkout прошли `npm ci`, build, lint и format. Повторный полный
+suite дал **3321 passed, 33 skipped, 2 failed** — те же два ранее воспроизведённых
+на upstream падения, перечисленные выше; новых падений не обнаружено.
+
+Новый installer собрал локальный source export с `--test`, без clone/apply
+upstream: **790 passed, 10 skipped**. Prefix и bin содержали пробелы. Проверены
+запуск executable, upstream/patch/fork provenance и byte equality основных
+compiled JS между прямой сборкой и установленным runtime.

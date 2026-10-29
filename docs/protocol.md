@@ -13,18 +13,14 @@
   "method": "initialize",
   "params": {
     "protocolVersion": 1,
-    "clientInfo": {"name": "example-client", "version": "1.0.0"},
+    "clientInfo": { "name": "example-client", "version": "1.0.0" },
     "clientCapabilities": {
       "_meta": {
         "orchestratorBackgroundTasks": 1,
         "jetbrains": {
           "air": {
             "version": 1,
-            "capabilities": [
-              "asyncTasks",
-              "nativeSubagentSessions",
-              "sessionFailure"
-            ]
+            "capabilities": ["asyncTasks", "nativeSubagentSessions", "sessionFailure"]
           }
         }
       }
@@ -37,7 +33,7 @@
 
 ```json
 {
-  "orchestratorBackgroundTasks": {"version": 1}
+  "orchestratorBackgroundTasks": { "version": 1 }
 }
 ```
 
@@ -60,7 +56,7 @@
   "jsonrpc": "2.0",
   "id": 10,
   "method": "_orchestrator/background",
-  "params": {"sessionId": "SESSION_ID"}
+  "params": { "sessionId": "SESSION_ID" }
 }
 ```
 
@@ -76,9 +72,7 @@
     "pending": true,
     "modelBusy": false,
     "token": "OPAQUE_SNAPSHOT_TOKEN",
-    "tasks": [
-      {"id": "TASK_ID", "state": "running", "autonomous": false}
-    ],
+    "tasks": [{ "id": "TASK_ID", "state": "running", "autonomous": false }],
     "closed": false
   }
 }
@@ -86,17 +80,17 @@
 
 Значения ID и token в примере условные.
 
-| Поле | Смысл |
-| --- | --- |
-| `version` | Integer `1` |
-| `sessionId` | Сессия запроса |
-| `pending` | Есть учтённая активная работа: native tasks, дети, ходы, SDK running state или обработка SDK event |
-| `modelBusy` | Модель/очередь ходов/автоматический ход/обработка SDK event заняты; не равнозначно наличию работающего shell |
-| `token` | Непрозрачный string для условного закрытия. Передавайте его обратно без разбора и модификации |
-| `tasks` | Async task registry; native и synthetic autonomous-turn записи |
-| `tasks[].state` | `running`, `paused`, `completed`, `failed` или `stopped` |
-| `tasks[].autonomous` | `true` у записи, представляющей автоматический ход модели |
-| `closed` | `false` для обычного status запроса; `true` только у принятого conditional close |
+| Поле                 | Смысл                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `version`            | Integer `1`                                                                                                  |
+| `sessionId`          | Сессия запроса                                                                                               |
+| `pending`            | Есть учтённая активная работа: native tasks, дети, ходы, SDK running state или обработка SDK event           |
+| `modelBusy`          | Модель/очередь ходов/автоматический ход/обработка SDK event заняты; не равнозначно наличию работающего shell |
+| `token`              | Непрозрачный string для условного закрытия. Передавайте его обратно без разбора и модификации                |
+| `tasks`              | Async task registry; native и synthetic autonomous-turn записи                                               |
+| `tasks[].state`      | `running`, `paused`, `completed`, `failed` или `stopped`                                                     |
+| `tasks[].autonomous` | `true` у записи, представляющей автоматический ход модели                                                    |
+| `closed`             | `false` для обычного status запроса; `true` только у принятого conditional close                             |
 
 Snapshot включает также held tasks, spawn которых ещё не доставлен клиенту. Дочерние агенты, SDK running state и очередь учитываются в `pending`/token, хотя не обязаны быть отдельными элементами массива `tasks`. Поэтому пустой массив или отсутствие `running` в нём **не заменяет проверку `pending`**.
 

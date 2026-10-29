@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/agentclientprotocol/claude-agent-acp.git",
+  "version": "0.96.0",
+  "revision": "f6958db1ee8d3e9ead6767a3a294f98b9a21adb9",
+  "patch": "background-drain.patch",
+  "patch_sha256": "babf0735a961af44d7851e887e0a9e2fb75fb43b9cd1728f1d7ecbcc5921dcc4",
+  "patch_applied": true,
+  "source_directory": "src",
+  "upstream_readme": "README.upstream.md",
+  "upstream_workflows": "docs/upstream-workflows",
+  "contract": {
+    "name": "orchestratorBackgroundTasks",
+    "version": 1
+  }
+}
