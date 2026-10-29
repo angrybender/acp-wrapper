@@ -102,78 +102,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Запуск executable без ACP-клиента ждёт JSON-RPC на stdin. Это нормальное поведение: это ACP-адаптер, а не интерактивный чат. `--version` — проверка установки без модельного запроса.
 
-## 4. Настройка RouterAI
-
-Проверенный маршрут провайдера: `https://routerai.ru/api/v1`, модель — `anthropic/claude-sonnet-4.6`.
-
-Для **Claude SDK** устанавливайте `ANTHROPIC_BASE_URL=https://routerai.ru/api`: SDK сам добавляет `/v1/messages`. Не добавляйте второй `/v1` в эту переменную. Это настройка Anthropic Messages API; OpenAI-compatible endpoint сам по себе не гарантирует совместимость с Claude SDK.
-
-### Вариант A: запуск из текущей shell
-
-Из каталога клонированного репозитория:
-
-```bash
-read -r -s -p 'RouterAI API key: ' ANTHROPIC_AUTH_TOKEN
-printf '\n'
-export ANTHROPIC_AUTH_TOKEN
-
-./examples/claude-routerai.sh
-```
-
-Launcher использует отдельный `CLAUDE_CONFIG_DIR`, настраивает URL, модель и ACP v1, очищает `ANTHROPIC_API_KEY`, затем через `exec` запускает установленный форк. Ключ не записывается в launcher. Список переменных — ниже.
-
-Эта команда ждёт ACP-клиента. В реальной интеграции launcher запускается самим клиентом с тем же окружением.
-
-### Вариант B: запуск по SSH / из сервиса
-
-Создайте token-файл **на agent host** под пользователем агента:
-
-```bash
-mkdir -p "$HOME/.config/acp-wrapper"
-(
-  umask 077
-  read -r -s -p 'RouterAI API key: ' token_value
-  printf '\n'
-  printf '%s' "$token_value" > "$HOME/.config/acp-wrapper/routerai.token"
-)
-```
-
-Создайте собственный launcher с абсолютными путями, например `~/.local/bin/claude-acp-routerai`:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-export ACP_ROUTERAI_TOKEN_FILE="$HOME/.config/acp-wrapper/routerai.token"
-exec "$HOME/src/acp-wrapper/examples/claude-routerai.sh" "$@"
-```
-
-В этом примере репозиторий находится в `~/src/acp-wrapper`; замените путь на фактический. Сделайте launcher исполняемым:
-
-```bash
-chmod +x "$HOME/.local/bin/claude-acp-routerai"
-```
-
-Передавайте ACP-клиенту полный путь к этому launcher. Переменные вашей локальной shell автоматически через SSH не передаются; token-файл и launcher решают это для неинтерактивного запуска.
-
-### Переменные примера launcher
-
-| Переменная | Default / назначение |
-| --- | --- |
-| `ACP_CLAUDE_BINARY` | `~/.local/bin/claude-agent-acp-wait` |
-| `ANTHROPIC_AUTH_TOKEN` | Ключ из окружения; обязателен, если нет token-файла |
-| `ACP_ROUTERAI_TOKEN_FILE` | Необязательный файл с ключом; при задании имеет приоритет над ключом окружения |
-| `ANTHROPIC_BASE_URL` | `https://routerai.ru/api` |
-| `ANTHROPIC_MODEL` | `anthropic/claude-sonnet-4.6` |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | Значение `ANTHROPIC_MODEL`, если явно не задано |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | Значение `ANTHROPIC_MODEL`, если явно не задано |
-| `ANTHROPIC_DEFAULT_OPUS_MODEL` | Значение `ANTHROPIC_MODEL`, если явно не задано |
-| `CLAUDE_CONFIG_DIR` | `~/.config/acp-wrapper/routerai` |
-
-Три default-model переменные направляют роли SDK на тот же проверенный маршрут. Можно переопределить их отдельно. Модель должна поддерживать необходимые Claude SDK tools; проверка простого текстового ответа провайдера этого не подтверждает.
-
-Для другого провайдера настройте поддерживаемый им Anthropic Messages URL, ключ и model IDs либо запускайте executable с обычной авторизацией Claude. Провайдер не зашит в патч или installer; RouterAI — конфигурация примера.
-
-## 5. Права на выполнение tools
+## 4. Права на выполнение tools
 
 Права задаются средствами Claude SDK, отдельно от ожидания фоновых задач. Launcher не включает bypass автоматически.
 
@@ -189,20 +118,20 @@ chmod +x "$HOME/.local/bin/claude-acp-routerai"
 }
 ```
 
-В примере RouterAI этот файл расположен в `~/.config/acp-wrapper/routerai/settings.json`. Этот режим разрешает агенту выполнять tools без интерактивного запроса; выбирайте его для рабочего каталога, в котором агенту разрешены такие действия. Если settings-файл уже существует, добавьте поле в его JSON, сохранив остальные настройки. Один лишь аргумент `--yolo` не заменяет эту конфигурацию: предыдущая реальная проверка показывала сохранение mode=default.
+Этот режим разрешает агенту выполнять tools без интерактивного запроса; выбирайте его для рабочего каталога, в котором агенту разрешены такие действия. Если settings-файл уже существует, добавьте поле в его JSON, сохранив остальные настройки. Один лишь аргумент `--yolo` не заменяет эту конфигурацию: предыдущая реальная проверка показывала сохранение mode=default.
 
-## 6. Подключение к оркестратору
+## 5. Подключение к оркестратору
 
-На agent host установите executable и launcher, затем в ACP-клиенте / Settings → Agent укажите:
+На agent host установите executable, затем в ACP-клиенте / Settings → Agent укажите:
 
 ```text
-Agent shell: /home/user/.local/bin/claude-acp-routerai
+Agent shell: /home/user/.local/bin/claude-agent-acp-wait
 ACP wait background tasks: true
 ACP background quiet timeout: 60
 Agent timeout: 1800
 ```
 
-Пути и общий timeout приведены как пример. Для запуска без RouterAI launcher можно указать `/home/user/.local/bin/claude-agent-acp-wait`, если нужные auth/provider переменные уже доступны процессу.
+Путь и общий timeout приведены как пример. Нужные переменные авторизации и провайдера должны быть доступны процессу агента.
 
 Требуется версия оркестратора, реализующая `orchestratorBackgroundTasks` v1. Старый клиент, который согласовывает только AIR, продолжит использовать свой прежний алгоритм. Конкретные поля Settings относятся к интеграции, с которой проверялся форк; installer не создаёт эти поля и не обновляет внешний оркестратор.
 
@@ -217,7 +146,7 @@ Agent timeout: 1800
 
 В проверенной интеграции нет дополнительного лимита «три проверочных prompt / 300 секунд» для этого контракта: выполнение ограничивает общий `agent_timeout`. Quiet timeout — период устойчивости, а не доказательство завершения работающей команды. Подробности — [контракт](docs/protocol.md).
 
-## 7. Обновление и откат
+## 6. Обновление и откат
 
 Обновление этого репозитория не переключает установленный runtime. Установка всегда привязана к закреплённому upstream commit и текущему патчу.
 
@@ -251,7 +180,7 @@ ln -sfn "$HOME/.local/share/claude-acp-background-0.96.0-r1/dist/index.js" \
 
 Installer сам не заменяет обычную команду `claude-agent-acp`. Если хотите использовать это имя, сначала сохраните текущий target и затем переключите symlink самостоятельно. В проверенной удалённой установке исходный CLI был сохранён под именем `claude-agent-acp-upstream-0.94.0`.
 
-## 8. Проверки и диагностика
+## 7. Проверки и диагностика
 
 [docs/testing.md](docs/testing.md) содержит результаты предыдущих проверок и их границы. Быстрая проверка локальной установки без обращения к провайдеру:
 
