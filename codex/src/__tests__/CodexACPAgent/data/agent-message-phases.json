@@ -1,0 +1,48 @@
+{
+  "method": "sessionUpdate",
+  "args": [
+    {
+      "sessionId": "test-session-id",
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "messageId": "commentary-message",
+        "content": {
+          "type": "text",
+          "text": "Checking the relevant event mapping."
+        },
+        "_meta": {
+          "jetbrains": {
+            "air": {
+              "version": 1,
+              "phase": "commentary"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
+{
+  "method": "sessionUpdate",
+  "args": [
+    {
+      "sessionId": "test-session-id",
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "messageId": "final-message",
+        "content": {
+          "type": "text",
+          "text": "Yes, here is the answer."
+        },
+        "_meta": {
+          "jetbrains": {
+            "air": {
+              "version": 1,
+              "phase": "final_answer"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

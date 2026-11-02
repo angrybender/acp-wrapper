@@ -49,3 +49,12 @@ Upstream workflow definitions are preserved under `docs/upstream-workflows/`
 for reference. They are not active in this fork. The package is private; this
 repository does not automatically publish upstream npm releases. The original
 release guide in `docs/RELEASES.md` describes upstream infrastructure.
+
+## Codex backend
+
+`codex/` is a pinned source fork with its own package-lock, typecheck and Vitest
+suite; it keeps upstream formatting. Run `npm run typecheck` and relevant tests
+inside codex. Do not enable copied upstream release workflows. The root Claude
+package and default installer remain independent. Strict Codex drain requires
+Linux /proc and real process verification; never infer successful stop from an
+empty terminal list or interpret app-server processId as a host OS PID.

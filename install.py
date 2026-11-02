@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build this Claude ACP source checkout in isolation and install its runtime."""
+"""Build the selected Claude or Codex ACP backend in isolation and install its runtime."""
 import argparse
 import hashlib
 import json
@@ -38,11 +38,20 @@ def source_revision(root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--prefix', type=Path, default=Path.home()/'.local/share/claude-acp-background-0.96.0-r1')
+    parser.add_argument('--agent', choices=('claude', 'codex'), default='claude')
+    parser.add_argument('--prefix', type=Path)
     parser.add_argument('--bin', type=Path, help='Optional executable symlink (must not exist)')
     parser.add_argument('--test', action='store_true', help='Run checks and ACP/async-task tests before installing')
     args = parser.parse_args()
-    destination = args.prefix.expanduser().absolute()
+    if args.agent == 'codex':
+        import sys
+        command = [sys.executable, str(Path(__file__).resolve().parent/'codex/install.py')]
+        if args.prefix: command += ['--prefix', str(args.prefix)]
+        if args.bin: command += ['--bin', str(args.bin)]
+        if args.test: command += ['--test']
+        run(*command)
+        return
+    destination = (args.prefix or Path.home()/'.local/share/claude-acp-background-0.96.0-r1').expanduser().absolute()
     if args.bin:
         args.bin = args.bin.expanduser().absolute()
     if os.path.lexists(destination) or (args.bin and os.path.lexists(args.bin)):

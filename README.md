@@ -1,5 +1,22 @@
 # acp-wrapper
 
+Одна кодовая база с двумя backend: **Claude** в корне и **Codex** в `codex/`.
+Оба предоставляют `orchestratorBackgroundTasks v1` для ожидания native работы
+и условного закрытия ACP v1. Установка Claude по умолчанию сохраняется.
+
+Codex устанавливается отдельно:
+
+```bash
+python3 install.py --agent codex --test \
+  --prefix "$HOME/.local/share/codex-acp-wrapper-2.2.2-r2" \
+  --bin "$HOME/.local/bin/acp-codex-wrapper"
+```
+
+Требования, supervision native процессов и ограничения —
+[codex/README.md](codex/README.md), [контракт Codex](docs/codex.md).
+Результаты общей матрицы — [docs/integration-tests.md](docs/integration-tests.md).
+Следующие разделы описывают существующий Claude backend.
+
 Форк **Claude Agent ACP** с явным ожиданием нативных фоновых задач и условным закрытием сессии. Предназначен для ACP-клиентов и оркестраторов, которым важно дождаться не только первого `end_turn`, но и завершения фоновой работы Claude.
 
 Репозиторий содержит **полную копию исходной кодовой базы upstream 0.96.0 с уже применённым патчем**: `src/`, тесты, lock-файл, build-конфигурацию, документацию и scripts. Installer собирает код прямо из этого checkout и устанавливает отдельный executable. Дополнительный upstream checkout не скачивается. `background-drain.patch` сохранён отдельно для сравнения и воспроизведения изменений; повторно применять его к этому репозиторию не нужно. Генерируемые `node_modules` и `dist` в Git не хранятся.

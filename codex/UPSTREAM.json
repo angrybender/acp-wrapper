@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/agentclientprotocol/codex-acp.git",
+  "revision": "202e66e63343ec4f5a5e35ab590251d813d129ca",
+  "version": "2.2.2",
+  "contract": {
+    "name": "orchestratorBackgroundTasks",
+    "version": 1
+  }
+}

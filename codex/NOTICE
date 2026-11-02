@@ -1,0 +1,3 @@
+Codex ACP backend derived from agentclientprotocol/codex-acp 2.2.2.
+Copyright upstream contributors. Licensed under Apache-2.0; see LICENSE.
+Background drain and native workload supervision changes: acp-wrapper contributors.

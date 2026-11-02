@@ -11,3 +11,11 @@ modified files and regression tests are identified in that patch.
 The patch, installer and accompanying examples are distributed under
 the Apache License, Version 2.0; see LICENSE.
 Upstream source and license are retained in installed packages.
+
+codex/ contains a source fork of agentclientprotocol/codex-acp 2.2.2.
+Upstream: https://github.com/agentclientprotocol/codex-acp
+Pinned commit: 202e66e63343ec4f5a5e35ab590251d813d129ca
+Its Apache-2.0 license, original README and upstream attribution are retained
+in codex/LICENSE, codex/README.upstream.md and codex/NOTICE.
+The Codex source includes local native workload supervision and background
+contract changes documented in docs/codex.md and tested under codex/src/__tests__.
