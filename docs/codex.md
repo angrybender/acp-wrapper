@@ -2,8 +2,9 @@
 
 The root backend remains Claude 0.96.0; `codex/` contains the complete Apache-2.0
 Codex ACP 2.2.2 source pinned in `codex/UPSTREAM.json`, with local changes applied.
-Each backend has its own lockfile, build and executable. There is no runtime
-switch that changes an existing session's agent.
+Each backend has its own lockfile and build. The default root installation
+packages both and selects a backend from an optional native executable path;
+see [launcher.md](launcher.md). Existing sessions cannot change their agent.
 
 ```bash
 python3 install.py --agent codex --test \
@@ -26,6 +27,11 @@ Set `ACP_CODEX_MODEL`, `ACP_ROUTERAI_HOST`, `ACP_CODEX_BINARY` and `CODEX_PATH` 
 needed. The tested model was `openai/gpt-6-luna`. No credentials are distributed.
 The orchestrator launches this executable in the task cwd and sends prompts over
 ACP `session/prompt` after `session/new` or `session/load`.
+
+The universal launcher accepts `claude-agent-acp-wait /usr/bin/codex --yolo`.
+It selects Codex from the native version, sets `CODEX_PATH` and applies `--yolo`
+to the initial ACP mode and native configuration. The standalone executable
+also accepts the configuration flags described in [launcher.md](launcher.md).
 
 ## Strict background contract
 

@@ -33,6 +33,12 @@ unavailable registry or unconfirmed cleanup never authorizes successful close.
 Ownership metadata lives under CODEX_HOME/acp-wrapper-scopes and contains no API key.
 Keep CODEX_HOME private to the agent user.
 
+The default root installation now includes this backend and accepts
+`claude-agent-acp-wait /usr/bin/codex --yolo`. See [native selection and arguments](../docs/launcher.md).
+Standalone Codex installation remains supported. Native model, permission and
+configuration flags also work on this backend; `--yolo` sets the ACP session's
+initial mode to `agent-full-access`.
+
 Ordinary clients that do not negotiate the contract keep upstream behavior.
 The contract supervises native local shell workloads with inherited ownership;
 it cannot cover hostile removal of the marker or external Docker/SSH services.

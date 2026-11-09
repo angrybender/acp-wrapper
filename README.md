@@ -2,9 +2,21 @@
 
 Одна кодовая база с двумя backend: **Claude** в корне и **Codex** в `codex/`.
 Оба предоставляют `orchestratorBackgroundTasks v1` для ожидания native работы
-и условного закрытия ACP v1. Установка Claude по умолчанию сохраняется.
+и условного закрытия ACP v1. Обычная установка включает оба backend;
+без аргумента по-прежнему запускается Claude.
 
-Codex устанавливается отдельно:
+Первым аргументом после launcher можно передать путь к нативному агенту:
+
+```bash
+/home/user/.local/bin/claude-agent-acp-wait /usr/bin/codex --yolo
+/home/user/.local/bin/claude-agent-acp-wait /usr/local/bin/claude --dangerously-skip-permissions
+```
+
+Агент определяется по `--version`, аргументы применяются выбранным backend.
+Codex `--yolo` устанавливает также ACP mode `agent-full-access`.
+Правила аргументов, passthrough и обновление установки — [docs/launcher.md](docs/launcher.md).
+
+При необходимости Codex по-прежнему можно установить отдельно:
 
 ```bash
 python3 install.py --agent codex --test \
@@ -84,6 +96,8 @@ Installer:
 3. Устанавливает зависимости через `npm ci --ignore-scripts` и собирает TypeScript. Патч уже применён к исходникам; повторное применение и сетевой checkout upstream не выполняются.
 4. При `--test` запускает lint, format и ACP/async-task регрессии.
 5. Собирает installation с `dist`, package/lock-файлами, README, лицензией и provenance; устанавливает только production dependencies.
+   Дополнительно устанавливает Codex runtime в `<prefix>/codex/`;
+   при `--test` проверяет оба backend и новый выбор агента.
 6. Делает entry point исполняемым, проверяет `--version`, записывает `FORK.json` и атомарно перемещает installation в `--prefix`.
 7. Создаёт symlink `--bin`, если он указан. Временный build-каталог удаляется автоматически.
 
@@ -98,6 +112,8 @@ git clone https://github.com/angrybender/acp-wrapper.git
 cd acp-wrapper
 npm ci --ignore-scripts
 npm run build
+npm --prefix codex ci --ignore-scripts
+npm --prefix codex run build
 node dist/index.js --version
 ```
 
@@ -162,7 +178,7 @@ export PATH="$HOME/.local/bin:$PATH"
 }
 ```
 
-Этот режим разрешает агенту выполнять tools без интерактивного запроса; выбирайте его для рабочего каталога, в котором агенту разрешены такие действия. Если settings-файл уже существует, добавьте поле в его JSON, сохранив остальные настройки. Один лишь аргумент `--yolo` не заменяет эту конфигурацию: предыдущая реальная проверка показывала сохранение mode=default.
+Этот режим разрешает агенту выполнять tools без интерактивного запроса; выбирайте его для рабочего каталога, в котором агенту разрешены такие действия. Если settings-файл уже существует, добавьте поле в его JSON, сохранив остальные настройки. При новом явном выборе нативного пути `--dangerously-skip-permissions` (или alias `--yolo`) также задаёт начальный режим Claude. Запуск без пути сохраняет старое поведение; историческая проверка одного `--yolo` без нативного пути показывала mode=default.
 
 ## 5. Подключение к оркестратору
 

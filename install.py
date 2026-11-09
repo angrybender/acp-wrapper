@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the selected Claude or Codex ACP backend in isolation and install its runtime."""
+"""Install the universal Claude/Codex launcher, or a standalone Codex backend."""
 import argparse
 import hashlib
 import json
@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 SOURCE_PATHS = (
-    'src', 'docs', 'examples', 'scripts', '.github',
+    'src', 'docs', 'examples', 'scripts', '.github', 'codex',
     'package.json', 'package-lock.json', 'tsconfig.json', 'vitest.config.ts',
     'eslint.config.js', '.prettierrc.json', '.prettierignore', '.gitattributes',
     '.gitignore', '.release-please-manifest.json', 'release-please-config.json',
@@ -74,20 +74,28 @@ def main():
         for name in SOURCE_PATHS:
             original = root/name
             if original.is_dir():
-                shutil.copytree(original, source/name)
+                shutil.copytree(original, source/name, ignore=shutil.ignore_patterns(
+                    'node_modules', 'dist', '.git', '__pycache__', '.cache'))
             elif original.is_file():
                 shutil.copy2(original, source/name)
         run('npm', 'ci', '--ignore-scripts', cwd=source)
         run('npm', 'run', 'build', cwd=source)
         if args.test:
             run('npm', 'run', 'check', cwd=source)
-            run('npm', 'run', 'test:run', '--', 'src/tests/async-tasks.test.ts', 'src/tests/acp-agent.test.ts', cwd=source)
+            run('npm', 'run', 'test:run', '--', 'src/tests/async-tasks.test.ts', 'src/tests/acp-agent.test.ts',
+                'src/tests/agent-launcher.test.ts', 'src/tests/claude-launch-options.test.ts', cwd=source)
         installed = staging/'installed'
         installed.mkdir()
         for name in ('package.json', 'package-lock.json', 'LICENSE', 'NOTICE', 'README.md', 'README.upstream.md', 'UPSTREAM.json'):
             shutil.copy2(source/name, installed/name)
         shutil.copytree(source/'dist', installed/'dist', ignore=shutil.ignore_patterns('tests'))
         run('npm', 'ci', '--omit=dev', '--ignore-scripts', cwd=installed)
+        # The installed launcher imports this backend when given a Codex path.
+        import sys
+        codex_command = [sys.executable, str(source/'codex/install.py'), '--prefix', str(installed/'codex')]
+        if args.test:
+            codex_command.append('--test')
+        run(*codex_command)
         entry = installed/'dist/index.js'
         entry.chmod(entry.stat().st_mode | 0o111)
         run(str(entry), '--version', cwd=installed)

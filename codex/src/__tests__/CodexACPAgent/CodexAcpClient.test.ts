@@ -562,7 +562,9 @@ describe('ACP server test', { timeout: 40_000 }, () => {
         expect(threadStartSpy.mock.calls[0]![0].developerInstructions).toBeUndefined();
     });
 
-    it('prefers ACP additional directories over legacy meta roots for new session skill discovery', async () => {
+    it.each([{launchRoots: []}, {launchRoots: ["/workspace/from-cli", "/workspace/extra"]}])('merges CLI roots and prefers ACP additional directories over legacy meta roots: %j', async ({launchRoots}) => {
+        vi.stubEnv("ACP_WRAPPER_CODEX_DIRS", JSON.stringify(launchRoots));
+        const expectedRoots = [...new Set(["/workspace/extra", ...launchRoots])];
         const mockFixture = createCodexMockTestFixture();
         const codexAcpClient = mockFixture.getCodexAcpClient();
         const codexAppServerClient = mockFixture.getCodexAppServerClient();
@@ -589,9 +591,9 @@ describe('ACP server test', { timeout: 40_000 }, () => {
             },
         });
 
-        expect(session.additionalDirectories).toEqual(["/workspace/extra"]);
+        expect(session.additionalDirectories).toEqual(expectedRoots);
         expect(extraRootsSetSpy).toHaveBeenCalledWith({
-            extraRoots: ["/workspace/extra/.agents/skills"],
+            extraRoots: expectedRoots.map(root => root + "/.agents/skills"),
         });
         expect(extraRootsSetSpy.mock.invocationCallOrder[0]!).toBeLessThan(threadStartSpy.mock.invocationCallOrder[0]!);
         expect(listSkillsSpy).not.toHaveBeenCalled();
@@ -599,10 +601,10 @@ describe('ACP server test', { timeout: 40_000 }, () => {
         const threadStartRequest = threadStartSpy.mock.calls[0]![0];
         expect(threadStartRequest.config?.["projects"]).toEqual({
             "/workspace": {trust_level: "trusted"},
-            "/workspace/extra": {trust_level: "trusted"},
+            ...Object.fromEntries(expectedRoots.map(root => [root, {trust_level: "trusted"}])),
         });
         expect(threadStartRequest.config?.["sandbox_workspace_write"]).toEqual({
-            writable_roots: ["/workspace/extra"],
+            writable_roots: expectedRoots,
         });
         expect(threadStartRequest.config?.["features"]).toMatchObject({
             cwd_relative_turn_diffs: false,

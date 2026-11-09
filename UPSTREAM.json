@@ -3,7 +3,7 @@
   "version": "0.96.0",
   "revision": "f6958db1ee8d3e9ead6767a3a294f98b9a21adb9",
   "patch": "background-drain.patch",
-  "patch_sha256": "babf0735a961af44d7851e887e0a9e2fb75fb43b9cd1728f1d7ecbcc5921dcc4",
+  "patch_sha256": "672bf64f137f52e0b6ed888d7f453acc66adb73743df7424b9c9d95ea77d574e",
   "patch_applied": true,
   "source_directory": "src",
   "upstream_readme": "README.upstream.md",

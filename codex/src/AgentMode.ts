@@ -143,10 +143,13 @@ export class AgentMode {
 
     static getInitialAgentMode(): AgentMode {
         const predefinedAgentMode = process.env["INITIAL_AGENT_MODE"];
-        if (predefinedAgentMode) {
-            return AgentMode.find(predefinedAgentMode) ?? AgentMode.DEFAULT_AGENT_MODE;
-        } else {
-            return AgentMode.DEFAULT_AGENT_MODE;
+        const mode = (predefinedAgentMode ? AgentMode.find(predefinedAgentMode) : null) ?? AgentMode.DEFAULT_AGENT_MODE;
+        const approval = process.env["ACP_WRAPPER_APPROVAL_POLICY"];
+        if (!approval) return mode;
+        if (approval !== "never" && approval !== "on-request" && approval !== "untrusted") {
+            throw new Error(`Unsupported approval policy: ${approval}`);
         }
+        return new AgentMode(mode.id, mode.name, mode.description, mode.kind, approval,
+            mode.approvalsReviewer, mode.sandboxPolicy, mode.sandboxMode);
     }
 }

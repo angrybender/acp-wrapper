@@ -10,6 +10,8 @@ Set `CODEX_PATH` to run a different Codex binary; versions other than the one sp
 - `MODEL_PROVIDER` - model provider to pass to Codex for new sessions.
 - `DEFAULT_AUTH_REQUEST` - ACP auth request JSON used when Codex requires authentication.
 - `INITIAL_AGENT_MODE` - initial mode id: `read-only`, `workspace-write`, `agent`, or `agent-full-access`.
+- `ACP_WRAPPER_APPROVAL_POLICY` - internal native-argument override for the initial mode's approval policy. Populated by CLI parsing; ordinary launches need no value.
+- `ACP_WRAPPER_CODEX_DIRS` - internal JSON array of absolute additional roots from repeated `--add-dir`. Merged with ACP-requested roots.
 - `NO_BROWSER` - hide browser-based ChatGPT auth when set.
 - `APP_SERVER_LOGS` - directory for adapter logs.
 - `CODEX_ACP_APP_SERVER_CRASH_LIMIT` - how many crashes of the Codex app-server in the crash window stop its automatic restart (default `5`).

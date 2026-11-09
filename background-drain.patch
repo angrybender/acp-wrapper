@@ -1,8 +1,13 @@
 diff --git a/src/acp-agent.ts b/src/acp-agent.ts
-index 56879a7..75fcfcd 100644
+index 56879a7..75735a9 100644
 --- a/src/acp-agent.ts
 +++ b/src/acp-agent.ts
-@@ -1023,6 +1023,9 @@ export type Session = {
+@@ -1,3 +1,4 @@
++import { claudeLaunchOptions } from "./claude-launch-options.js";
+ import {
+   agent as acpAgent,
+   AgentApp,
+@@ -1023,6 +1024,9 @@ export type Session = {
    cancelledPrompts?: Set<string>;
    /** FIFO of in-flight prompts. The head is the turn the SDK is currently
     *  processing; later entries are queued and will be echoed in order. */
@@ -12,7 +17,7 @@ index 56879a7..75fcfcd 100644
    turnQueue?: Turn[];
    /** The turn whose messages the consumer is currently attributing output to
     *  (the head of `turnQueue` once its user message has been echoed). */
-@@ -3024,6 +3027,7 @@ export class ClaudeAcpAgent {
+@@ -3024,6 +3028,7 @@ export class ClaudeAcpAgent {
        // Only AIR gets the AIR capabilities and the goal capability, under
        // `jetbrains.air`.
        _meta: {
@@ -20,7 +25,7 @@ index 56879a7..75fcfcd 100644
          ...(this.toolCallCapabilities.air.client
            ? withAirMeta(
                airSessionFailureCapabilityMeta(
-@@ -3804,6 +3808,7 @@ export class ClaudeAcpAgent {
+@@ -3804,6 +3809,7 @@ export class ClaudeAcpAgent {
    async startTurn(params: PromptRequest, events: TurnEvents): Promise<void> {
      while (this.providerUpdate) await this.providerUpdate;
      let session = this.sessions[params.sessionId];
@@ -28,7 +33,7 @@ index 56879a7..75fcfcd 100644
      if (!session) {
        throw new Error("Session not found");
      }
-@@ -4587,6 +4592,7 @@ export class ClaudeAcpAgent {
+@@ -4587,6 +4593,7 @@ export class ClaudeAcpAgent {
        params.sessionId,
        async (notification) => this.client.sessionUpdate(asSdkSessionNotification(notification)),
        {
@@ -36,7 +41,7 @@ index 56879a7..75fcfcd 100644
          notices: supportsNotices,
          // A task that a subagent tool call started belongs to the child
          // session of that tool call, like the tool call itself.
-@@ -5717,6 +5723,7 @@ export class ClaudeAcpAgent {
+@@ -5717,6 +5724,7 @@ export class ClaudeAcpAgent {
  
      try {
        while (true) {
@@ -44,7 +49,7 @@ index 56879a7..75fcfcd 100644
          // A backlog of buffered SDK messages drains without a macrotask
          // boundary (each await resolves in a microtask), which would starve
          // timers and incoming requests, `session/cancel` among them, until
-@@ -5884,6 +5891,9 @@ export class ClaudeAcpAgent {
+@@ -5884,6 +5892,9 @@ export class ClaudeAcpAgent {
            return;
          }
  
@@ -54,7 +59,7 @@ index 56879a7..75fcfcd 100644
          if (
            session.emitRawSDKMessages &&
            shouldEmitRawMessage(session.emitRawSDKMessages, message)
-@@ -9132,6 +9142,51 @@ export class ClaudeAcpAgent {
+@@ -9132,6 +9143,51 @@ export class ClaudeAcpAgent {
      await Promise.all(Object.keys(this.sessions).map((id) => this.teardownSession(id)));
    }
  
@@ -106,7 +111,28 @@ index 56879a7..75fcfcd 100644
    /** Idempotent: a session that is not loaded here is already closed. */
    async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
      if (!this.sessions[params.sessionId]) {
-@@ -14039,6 +14094,31 @@ export function v1AgentApp(
+@@ -11504,9 +11560,10 @@ export class ClaudeAcpAgent {
+       settingsManager.getSettings().permissions?.disableBypassPermissionsMode !== "disable" &&
+       sessionMeta?.claudeCode?.options?.allowDangerouslySkipPermissions !== false;
+ 
++    const launchOptions = claudeLaunchOptions();
+     const initialPermissionMode = resolveInitialPermissionMode(
+       {
+-        explicit: creationOpts.permissionMode,
++        explicit: creationOpts.permissionMode ?? launchOptions.permissionMode,
+         resumed: resumedPermissionMode,
+         defaultMode: settingsManager.getSettings().permissions?.defaultMode,
+       },
+@@ -11514,7 +11571,7 @@ export class ClaudeAcpAgent {
+       allowBypass,
+     );
+ 
+-    const userProvidedOptions = sessionMeta?.claudeCode?.options;
++    const userProvidedOptions = { ...launchOptions, ...sessionMeta?.claudeCode?.options };
+     const forwardSubagentText = this.forwardsSubagentText(params._meta);
+ 
+     // Configure thinking behavior from environment variable
+@@ -14039,6 +14096,31 @@ export function v1AgentApp(
        { parse: parseAsyncTaskStopRequest },
        (ctx) => agent.stopAsyncTask(ctx.params),
      )
@@ -138,6 +164,107 @@ index 56879a7..75fcfcd 100644
      .onRequest<GoalRequest, GoalControlResponse>(
        GOAL_CONTROL_METHOD,
        { parse: parseGoalRequest },
+diff --git a/src/agent-launcher.ts b/src/agent-launcher.ts
+new file mode 100644
+index 0000000..0191384
+--- /dev/null
++++ b/src/agent-launcher.ts
+@@ -0,0 +1,95 @@
++import { execFile, spawn } from "node:child_process";
++import { constants } from "node:fs";
++import { access, stat } from "node:fs/promises";
++import { delimiter, isAbsolute, resolve } from "node:path";
++import { promisify } from "node:util";
++
++const execFileAsync = promisify(execFile);
++
++export type AgentLaunch = {
++  agent: "claude" | "codex";
++  path: string;
++  args: string[];
++  nativeCli: boolean;
++};
++
++async function executablePath(value: string): Promise<string> {
++  const candidates =
++    isAbsolute(value) || value.includes("/") || value.includes("\\")
++      ? [resolve(value)]
++      : (process.env.PATH ?? "").split(delimiter).map((dir) => resolve(dir, value));
++  for (const candidate of candidates) {
++    try {
++      await access(candidate, constants.X_OK);
++      if ((await stat(candidate)).isFile()) return candidate;
++    } catch {
++      // Try the next PATH entry. An explicit path has just one candidate.
++    }
++  }
++  throw new Error(`Agent executable not found or not executable: ${value}`);
++}
++
++/** Probe the supplied executable, rather than guessing from a symlink's name. */
++export async function selectAgent(args: string[]): Promise<AgentLaunch | undefined> {
++  const [target, ...remaining] = args;
++  if (!target || target.startsWith("-")) return undefined;
++  const path = await executablePath(target);
++  let version: string;
++  try {
++    const result = await execFileAsync(path, ["--version"], {
++      timeout: 5000,
++      maxBuffer: 8192,
++      windowsHide: true,
++    });
++    version = `${result.stdout}\n${result.stderr}`;
++  } catch {
++    throw new Error(`Cannot identify agent at ${path}: --version failed or timed out.`);
++  }
++  const agent = /(?:^|\n)\s*codex(?:-cli)?\s+\d/i.test(version)
++    ? "codex"
++    : /\bclaude code\b|(?:^|\n)\s*claude\s+\d/i.test(version)
++      ? "claude"
++      : undefined;
++  if (!agent) throw new Error(`Unsupported agent at ${path}: expected Claude Code or Codex CLI.`);
++  const cliFlag = remaining.includes("--cli");
++  const cliCommand = agent === "codex" && remaining[0] === "cli";
++  const passthrough = cliFlag || cliCommand;
++  const nativeArgs = cliFlag
++    ? remaining.filter((arg) => arg !== "--cli")
++    : cliCommand
++      ? remaining.slice(1)
++      : remaining;
++  const nativeCli =
++    passthrough ||
++    nativeArgs.some((arg) => ["--version", "-v", "-V", "--help", "-h"].includes(arg)) ||
++    Boolean(nativeArgs[0] && !nativeArgs[0].startsWith("-"));
++  return { agent, path, args: nativeArgs, nativeCli };
++}
++
++/** Preserve argument boundaries, stdio, exit status and termination signals. */
++export async function runNativeCli(path: string, args: string[]): Promise<number> {
++  const child = spawn(path, args, { stdio: "inherit" });
++  const signals =
++    process.platform === "win32"
++      ? (["SIGINT", "SIGTERM"] as const)
++      : (["SIGINT", "SIGTERM", "SIGHUP"] as const);
++  const handlers = signals.map((signal) => {
++    const handler = () => {
++      if (!child.killed) child.kill(signal);
++    };
++    process.on(signal, handler);
++    return [signal, handler] as const;
++  });
++  try {
++    return await new Promise<number>((resolve, reject) => {
++      child.once("error", reject);
++      child.once("exit", (code, signal) => {
++        for (const [name, handler] of handlers) process.removeListener(name, handler);
++        if (signal && process.platform !== "win32") process.kill(process.pid, signal);
++        resolve(code ?? 1);
++      });
++    });
++  } finally {
++    for (const [name, handler] of handlers) process.removeListener(name, handler);
++  }
++}
 diff --git a/src/async-tasks.ts b/src/async-tasks.ts
 index 3c390dc..b20c762 100644
 --- a/src/async-tasks.ts
@@ -178,6 +305,329 @@ index 3c390dc..b20c762 100644
        }
      }
    }
+diff --git a/src/claude-entry.ts b/src/claude-entry.ts
+new file mode 100644
+index 0000000..9a7d02f
+--- /dev/null
++++ b/src/claude-entry.ts
+@@ -0,0 +1,107 @@
++#!/usr/bin/env node
++
++import { claudeCliPath } from "./acp-agent.js";
++import { applyManagedPolicyEnv } from "./managed-policy.js";
++import { acpProtocolsFromEnv, serveAcp } from "./serve.js";
++import packageJson from "../package.json" with { type: "json" };
++import { appendFileSync, mkdirSync } from "node:fs";
++import { join } from "node:path";
++
++// `--cli` is checked first so that `--version`/`-v` (and any other flags) are
++// forwarded to the wrapped native CLI rather than swallowed by our own version
++// handler below. Our version flag only applies when not delegating.
++if (process.argv.includes("--cli")) {
++  const { spawn } = await import("node:child_process");
++  const args = process.argv.slice(2).filter((arg) => arg !== "--cli");
++  const child = spawn(await claudeCliPath(), args, { stdio: "inherit" });
++
++  const signals =
++    process.platform === "win32"
++      ? (["SIGINT", "SIGTERM"] as const)
++      : (["SIGINT", "SIGTERM", "SIGHUP"] as const);
++  for (const sig of signals) {
++    process.on(sig, () => {
++      if (!child.killed) child.kill(sig);
++    });
++  }
++
++  child.on("exit", (code, signal) => {
++    if (signal && process.platform !== "win32") {
++      // Remove our listener so re-raising actually terminates instead of
++      // re-entering the no-op handler, which would let us exit with code 0
++      // instead of the signal's conventional 128+N.
++      process.removeAllListeners(signal);
++      process.kill(process.pid, signal);
++    } else {
++      process.exit(code ?? 1);
++    }
++  });
++  child.on("error", (err) => {
++    console.error(err);
++    process.exit(1);
++  });
++} else if (process.argv.includes("--version") || process.argv.includes("-v")) {
++  console.log(packageJson.version);
++  process.exit(0);
++} else {
++  // Apply env vars from the managed-policy tier before any SDK call so the
++  // SDK subprocess inherits them. Reading the tier is best-effort: a transient
++  // failure leaves the agent running with no policy env instead of aborting
++  // module evaluation here, before any ACP traffic.
++  await applyManagedPolicyEnv();
++
++  // stdout is used to send messages to the client
++  // we redirect everything else to stderr to make sure it doesn't interfere with ACP
++  console.log = console.error;
++  console.info = console.error;
++  console.warn = console.error;
++  console.debug = console.error;
++
++  process.on("unhandledRejection", (reason, promise) => {
++    console.error("Unhandled Rejection at:", promise, "reason:", reason);
++  });
++
++  const logDirectory = process.env.CLAUDE_AGENT_LOGS;
++  const logger = logDirectory
++    ? (() => {
++        mkdirSync(logDirectory, { recursive: true });
++        const logFile = join(logDirectory, "agent.log");
++        const writeLog = (...args: unknown[]) => {
++          const rendered = args
++            .map((arg) => (arg instanceof Error ? (arg.stack ?? arg.message) : String(arg)))
++            .join(" ");
++          appendFileSync(logFile, `${new Date().toISOString()} pid=${process.pid} ${rendered}\n`);
++        };
++        return {
++          log: writeLog,
++          error: (...args: unknown[]) => {
++            console.error(...args);
++            writeLog(...args);
++          },
++        };
++      })()
++    : undefined;
++  logger?.log("Claude ACP started");
++
++  const acp = serveAcp(logger, {
++    protocols: acpProtocolsFromEnv(process.env.CLAUDE_AGENT_ACP_PROTOCOL),
++  });
++
++  async function shutdown() {
++    await acp.dispose().catch((err) => {
++      console.error("Error during cleanup:", err);
++    });
++    process.exit(0);
++  }
++
++  // Exit cleanly when the ACP connection closes (e.g. stdin EOF, transport
++  // error). Without this, `process.stdin.resume()` keeps the event loop
++  // alive indefinitely, causing orphan process accumulation in oneshot mode.
++  acp.closed.then(shutdown);
++
++  process.on("SIGTERM", shutdown);
++  process.on("SIGINT", shutdown);
++
++  // Keep process alive while connection is open
++  process.stdin.resume();
++}
+diff --git a/src/claude-launch-options.ts b/src/claude-launch-options.ts
+new file mode 100644
+index 0000000..1577259
+--- /dev/null
++++ b/src/claude-launch-options.ts
+@@ -0,0 +1,63 @@
++import { spawn } from "node:child_process";
++import type { Options, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
++
++/** Native arguments are appended as an argv array; no shell command is built. */
++export function claudeLaunchOptions(): Partial<Options> {
++  const encoded = process.env.ACP_WRAPPER_CLAUDE_ARGS;
++  if (!encoded) return {};
++  const args: unknown = JSON.parse(encoded);
++  if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) {
++    throw new Error("ACP_WRAPPER_CLAUDE_ARGS must be a JSON array of strings.");
++  }
++  const forwarded: string[] = [];
++  const options: Partial<Options> = {};
++  const reserved = new Set([
++    "--input-format",
++    "--output-format",
++    "--print",
++    "-p",
++    "--resume",
++    "-r",
++    "--continue",
++    "-c",
++    "--session-id",
++    "--fork-session",
++    "--sdk-url",
++  ]);
++  for (let i = 0; i < args.length; i++) {
++    const arg: string = args[i];
++    const [flag, inline] = arg.split(/=(.*)/s, 2);
++    if (reserved.has(flag))
++      throw new Error(`${flag} is controlled by ACP; use --cli for native CLI commands.`);
++    if (flag === "--yolo" || flag === "--dangerously-skip-permissions") {
++      if (inline !== undefined) throw new Error(`${flag} does not take a value.`);
++      options.permissionMode = "bypassPermissions";
++      forwarded.push("--dangerously-skip-permissions");
++      continue;
++    }
++    if (flag === "--permission-mode" || flag === "--model") {
++      const value: string | undefined = inline ?? args[++i];
++      if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value.`);
++      if (flag === "--permission-mode") {
++        if (
++          !["default", "acceptEdits", "bypassPermissions", "dontAsk", "plan", "auto"].includes(
++            value,
++          )
++        ) {
++          throw new Error(`Unsupported Claude permission mode: ${value}`);
++        }
++        options.permissionMode = value as PermissionMode;
++      } else {
++        options.model = value;
++      }
++      forwarded.push(flag, value);
++      continue;
++    }
++    forwarded.push(arg);
++  }
++  if (forwarded.length) {
++    options.spawnClaudeCodeProcess = ({ command, args, cwd, env, signal }) =>
++      spawn(command, [...args, ...forwarded], { cwd, env, signal, stdio: "pipe" });
++  }
++  return options;
++}
+diff --git a/src/index.ts b/src/index.ts
+index 9a7d02f..a46ffd9 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,107 +1,35 @@
+ #!/usr/bin/env node
+ 
+-import { claudeCliPath } from "./acp-agent.js";
+-import { applyManagedPolicyEnv } from "./managed-policy.js";
+-import { acpProtocolsFromEnv, serveAcp } from "./serve.js";
+-import packageJson from "../package.json" with { type: "json" };
+-import { appendFileSync, mkdirSync } from "node:fs";
+-import { join } from "node:path";
+-
+-// `--cli` is checked first so that `--version`/`-v` (and any other flags) are
+-// forwarded to the wrapped native CLI rather than swallowed by our own version
+-// handler below. Our version flag only applies when not delegating.
+-if (process.argv.includes("--cli")) {
+-  const { spawn } = await import("node:child_process");
+-  const args = process.argv.slice(2).filter((arg) => arg !== "--cli");
+-  const child = spawn(await claudeCliPath(), args, { stdio: "inherit" });
+-
+-  const signals =
+-    process.platform === "win32"
+-      ? (["SIGINT", "SIGTERM"] as const)
+-      : (["SIGINT", "SIGTERM", "SIGHUP"] as const);
+-  for (const sig of signals) {
+-    process.on(sig, () => {
+-      if (!child.killed) child.kill(sig);
+-    });
+-  }
+-
+-  child.on("exit", (code, signal) => {
+-    if (signal && process.platform !== "win32") {
+-      // Remove our listener so re-raising actually terminates instead of
+-      // re-entering the no-op handler, which would let us exit with code 0
+-      // instead of the signal's conventional 128+N.
+-      process.removeAllListeners(signal);
+-      process.kill(process.pid, signal);
++import { existsSync } from "node:fs";
++import { selectAgent, runNativeCli } from "./agent-launcher.js";
++import { claudeLaunchOptions } from "./claude-launch-options.js";
++
++try {
++  const selected = await selectAgent(process.argv.slice(2));
++  if (!selected) {
++    // Keep the original no-path invocation, --version and --cli behavior.
++    await import("./claude-entry.js");
++  } else if (selected.nativeCli) {
++    process.exitCode = await runNativeCli(selected.path, selected.args);
++  } else {
++    process.argv = [process.argv[0], process.argv[1], ...selected.args];
++    if (selected.agent === "claude") {
++      process.env.CLAUDE_CODE_EXECUTABLE = selected.path;
++      process.env.ACP_WRAPPER_CLAUDE_ARGS = JSON.stringify(selected.args);
++      claudeLaunchOptions(); // Reject incompatible flags before accepting ACP.
++      await import("./claude-entry.js");
+     } else {
+-      process.exit(code ?? 1);
++      process.env.CODEX_PATH = selected.path;
++      const backend = new URL("../codex/dist/index.js", import.meta.url);
++      if (!existsSync(backend)) {
++        throw new Error(
++          "Codex ACP backend is missing. Reinstall with install.py, or build codex/ with npm ci --ignore-scripts and npm run build.",
++        );
++      }
++      await import(backend.href);
+     }
+-  });
+-  child.on("error", (err) => {
+-    console.error(err);
+-    process.exit(1);
+-  });
+-} else if (process.argv.includes("--version") || process.argv.includes("-v")) {
+-  console.log(packageJson.version);
+-  process.exit(0);
+-} else {
+-  // Apply env vars from the managed-policy tier before any SDK call so the
+-  // SDK subprocess inherits them. Reading the tier is best-effort: a transient
+-  // failure leaves the agent running with no policy env instead of aborting
+-  // module evaluation here, before any ACP traffic.
+-  await applyManagedPolicyEnv();
+-
+-  // stdout is used to send messages to the client
+-  // we redirect everything else to stderr to make sure it doesn't interfere with ACP
+-  console.log = console.error;
+-  console.info = console.error;
+-  console.warn = console.error;
+-  console.debug = console.error;
+-
+-  process.on("unhandledRejection", (reason, promise) => {
+-    console.error("Unhandled Rejection at:", promise, "reason:", reason);
+-  });
+-
+-  const logDirectory = process.env.CLAUDE_AGENT_LOGS;
+-  const logger = logDirectory
+-    ? (() => {
+-        mkdirSync(logDirectory, { recursive: true });
+-        const logFile = join(logDirectory, "agent.log");
+-        const writeLog = (...args: unknown[]) => {
+-          const rendered = args
+-            .map((arg) => (arg instanceof Error ? (arg.stack ?? arg.message) : String(arg)))
+-            .join(" ");
+-          appendFileSync(logFile, `${new Date().toISOString()} pid=${process.pid} ${rendered}\n`);
+-        };
+-        return {
+-          log: writeLog,
+-          error: (...args: unknown[]) => {
+-            console.error(...args);
+-            writeLog(...args);
+-          },
+-        };
+-      })()
+-    : undefined;
+-  logger?.log("Claude ACP started");
+-
+-  const acp = serveAcp(logger, {
+-    protocols: acpProtocolsFromEnv(process.env.CLAUDE_AGENT_ACP_PROTOCOL),
+-  });
+-
+-  async function shutdown() {
+-    await acp.dispose().catch((err) => {
+-      console.error("Error during cleanup:", err);
+-    });
+-    process.exit(0);
+   }
+-
+-  // Exit cleanly when the ACP connection closes (e.g. stdin EOF, transport
+-  // error). Without this, `process.stdin.resume()` keeps the event loop
+-  // alive indefinitely, causing orphan process accumulation in oneshot mode.
+-  acp.closed.then(shutdown);
+-
+-  process.on("SIGTERM", shutdown);
+-  process.on("SIGINT", shutdown);
+-
+-  // Keep process alive while connection is open
+-  process.stdin.resume();
++} catch (error) {
++  console.error(error instanceof Error ? error.message : String(error));
++  process.exitCode = 1;
+ }
 diff --git a/src/tests/acp-agent.test.ts b/src/tests/acp-agent.test.ts
 index c21e675..72e9ee5 100644
 --- a/src/tests/acp-agent.test.ts
@@ -224,6 +674,125 @@ index c21e675..72e9ee5 100644
    it("should close an existing session and remove it", async () => {
      const agent = createMockAgent();
      const session = injectSession(agent, "session-1");
+diff --git a/src/tests/acp-scenarios.test.ts b/src/tests/acp-scenarios.test.ts
+index be20525..c6623cf 100644
+--- a/src/tests/acp-scenarios.test.ts
++++ b/src/tests/acp-scenarios.test.ts
+@@ -270,9 +270,10 @@ describe.skipIf(baselineDir)("ACP scenarios", () => {
+         version: "<version>",
+         command: "<executable>",
+       });
+-      expect(normalize({ version: "9.9.9", command: "/usr/bin/node" }, cwd, session)).toEqual({
++      const otherNode = process.execPath === "/usr/bin/node" ? "/opt/other-node" : "/usr/bin/node";
++      expect(normalize({ version: "9.9.9", command: otherNode }, cwd, session)).toEqual({
+         version: "9.9.9",
+-        command: "/usr/bin/node",
++        command: otherNode,
+       });
+     });
+ 
+diff --git a/src/tests/agent-launcher.test.ts b/src/tests/agent-launcher.test.ts
+new file mode 100644
+index 0000000..5d3b739
+--- /dev/null
++++ b/src/tests/agent-launcher.test.ts
+@@ -0,0 +1,96 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { runNativeCli, selectAgent } from "../agent-launcher.js";
++
++let directory: string;
++beforeEach(async () => {
++  directory = await mkdtemp(join(tmpdir(), "acp-launcher-"));
++});
++afterEach(async () => {
++  vi.unstubAllEnvs();
++  await rm(directory, { recursive: true, force: true });
++});
++
++async function executable(name: string, version: string) {
++  const file = join(directory, name);
++  await writeFile(
++    file,
++    `#!${process.execPath}\nif(process.argv[2]==='--version') console.log(${JSON.stringify(version)}); else { const fs=require('node:fs'); fs.writeFileSync(process.env.ARGV_CAPTURE,JSON.stringify(process.argv.slice(2))); process.exitCode=7; }\n`,
++  );
++  await chmod(file, 0o755);
++  return file;
++}
++
++describe("native agent selection", () => {
++  it.each([[], ["--version"], ["--cli", "--version"], ["--help"]])(
++    "retains no-path Claude entry %j",
++    async (...argv) => {
++      expect(await selectAgent(argv as string[])).toBeUndefined();
++    },
++  );
++
++  it.each([
++    ["codex-cli 0.160.1", "codex"],
++    ["2.1.90 (Claude Code)", "claude"],
++  ])("probes %s through a path with spaces", async (version, agent) => {
++    const path = await executable("native agent", version);
++    expect(await selectAgent([path, "--yolo", "--model", "some model"])).toEqual({
++      agent,
++      path,
++      args: ["--yolo", "--model", "some model"],
++      nativeCli: false,
++    });
++  });
++
++  it("identifies the target of a renamed symlink and resolves PATH", async () => {
++    const target = await executable("native", "codex-cli 0.160.1");
++    const alias = join(directory, "my-agent");
++    await symlink(target, alias);
++    vi.stubEnv("PATH", directory);
++    expect((await selectAgent(["my-agent", "-c", "model='literal'"]))?.agent).toBe("codex");
++  });
++
++  it.each(["Something else 1.0", "@agentclientprotocol/codex-acp 2.2.2"])(
++    "rejects non-native version %s",
++    async (version) => {
++      const file = await executable("codex", version);
++      await expect(selectAgent([file])).rejects.toThrow("Unsupported agent");
++    },
++  );
++
++  it("rejects missing and non-executable paths", async () => {
++    await expect(selectAgent([join(directory, "missing")])).rejects.toThrow("not executable");
++    const file = await executable("claude", "2.1.90 (Claude Code)");
++    await chmod(file, 0o644);
++    await expect(selectAgent([file])).rejects.toThrow("not executable");
++  });
++
++  it.each([
++    ["--version"],
++    ["--model", "x", "--help"],
++    ["--cli", "--version"],
++    ["cli", "--version"],
++    ["login", "status"],
++    ["logout"],
++    ["exec", "a prompt"],
++  ])("delegates native mode %j", async (...argv) => {
++    const file = await executable("codex", "codex-cli 0.160.1");
++    expect((await selectAgent([file, ...(argv as string[])]))?.nativeCli).toBe(true);
++  });
++
++  it("forwards argv literally and preserves the native exit code", async () => {
++    const file = await executable("codex", "codex-cli 0.160.1");
++    const capture = join(directory, "argv.json");
++    vi.stubEnv("ARGV_CAPTURE", capture);
++    const args = [
++      "exec",
++      "space and quotes ' \"",
++      "$(touch should-not-exist)",
++      "--config=model='a=b'",
++    ];
++    expect(await runNativeCli(file, args)).toBe(7);
++    expect(JSON.parse(await readFile(capture, "utf8"))).toEqual(args);
++  });
++});
 diff --git a/src/tests/async-tasks.test.ts b/src/tests/async-tasks.test.ts
 index e0f1c32..f47912a 100644
 --- a/src/tests/async-tasks.test.ts
@@ -244,3 +813,84 @@ index e0f1c32..f47912a 100644
    it("keeps an autonomous turn open across the SDK task list and fails it at shutdown", async () => {
      const updates: AcpSessionNotification[] = [];
      const runtime = new AsyncTaskRuntime(true, "root", async (notification) => {
+diff --git a/src/tests/claude-launch-options.test.ts b/src/tests/claude-launch-options.test.ts
+new file mode 100644
+index 0000000..224ff5e
+--- /dev/null
++++ b/src/tests/claude-launch-options.test.ts
+@@ -0,0 +1,75 @@
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { claudeLaunchOptions } from "../claude-launch-options.js";
++import { mkdtemp, rm, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++
++afterEach(() => vi.unstubAllEnvs());
++
++describe("Claude native launch flags", () => {
++  it("keeps SDK defaults without explicit native flags", () => {
++    vi.stubEnv("ACP_WRAPPER_CLAUDE_ARGS", "");
++    expect(claudeLaunchOptions()).toEqual({});
++  });
++
++  it.each(["--yolo", "--dangerously-skip-permissions"])("selects bypass mode for %s", (flag) => {
++    vi.stubEnv("ACP_WRAPPER_CLAUDE_ARGS", JSON.stringify([flag, "--model", "some-model"]));
++    expect(claudeLaunchOptions()).toMatchObject({
++      permissionMode: "bypassPermissions",
++      model: "some-model",
++    });
++    expect(claudeLaunchOptions().spawnClaudeCodeProcess).toBeTypeOf("function");
++  });
++
++  it.each(["--permission-mode=plan", "--model=some-model"])("accepts equals syntax %s", (flag) => {
++    vi.stubEnv("ACP_WRAPPER_CLAUDE_ARGS", JSON.stringify([flag]));
++    expect(claudeLaunchOptions()).toMatchObject(
++      flag.includes("plan") ? { permissionMode: "plan" } : { model: "some-model" },
++    );
++  });
++
++  it("forwards repeated flags and quoted values to the actual SDK subprocess without a shell", async () => {
++    const directory = await mkdtemp(join(tmpdir(), "claude-launch-"));
++    try {
++      const file = join(directory, "mock native.cjs");
++      await writeFile(file, "process.stdout.write(JSON.stringify(process.argv.slice(2)))");
++      const args = [
++        "--allowedTools",
++        "Read",
++        "--allowedTools",
++        "Bash(a b)",
++        "--settings",
++        "$(touch literal) 'quoted'",
++      ];
++      vi.stubEnv("ACP_WRAPPER_CLAUDE_ARGS", JSON.stringify(args));
++      const spawnNative = claudeLaunchOptions().spawnClaudeCodeProcess!;
++      const child = spawnNative({
++        command: process.execPath,
++        args: [file, "--sdk-generated"],
++        cwd: directory,
++        env: process.env,
++        signal: new AbortController().signal,
++      });
++      let output = "";
++      child.stdout.on("data", (data) => {
++        output += data;
++      });
++      const code = await new Promise((resolve) => child.on("exit", resolve));
++      expect(code).toBe(0);
++      expect(JSON.parse(output)).toEqual(["--sdk-generated", ...args]);
++    } finally {
++      await rm(directory, { recursive: true, force: true });
++    }
++  });
++
++  it.each([
++    ["--model"],
++    ["--permission-mode", "unknown"],
++    ["--yolo=false"],
++    ["--output-format=text"],
++    ["--resume", "old"],
++  ])("rejects invalid or ACP-owned flags %j", (...args) => {
++    vi.stubEnv("ACP_WRAPPER_CLAUDE_ARGS", JSON.stringify(args));
++    expect(() => claudeLaunchOptions()).toThrow();
++  });
++});

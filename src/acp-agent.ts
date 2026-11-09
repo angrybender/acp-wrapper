@@ -1,3 +1,4 @@
+import { claudeLaunchOptions } from "./claude-launch-options.js";
 import {
   agent as acpAgent,
   AgentApp,
@@ -11559,9 +11560,10 @@ export class ClaudeAcpAgent {
       settingsManager.getSettings().permissions?.disableBypassPermissionsMode !== "disable" &&
       sessionMeta?.claudeCode?.options?.allowDangerouslySkipPermissions !== false;
 
+    const launchOptions = claudeLaunchOptions();
     const initialPermissionMode = resolveInitialPermissionMode(
       {
-        explicit: creationOpts.permissionMode,
+        explicit: creationOpts.permissionMode ?? launchOptions.permissionMode,
         resumed: resumedPermissionMode,
         defaultMode: settingsManager.getSettings().permissions?.defaultMode,
       },
@@ -11569,7 +11571,7 @@ export class ClaudeAcpAgent {
       allowBypass,
     );
 
-    const userProvidedOptions = sessionMeta?.claudeCode?.options;
+    const userProvidedOptions = { ...launchOptions, ...sessionMeta?.claudeCode?.options };
     const forwardSubagentText = this.forwardsSubagentText(params._meta);
 
     // Configure thinking behavior from environment variable

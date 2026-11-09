@@ -1480,11 +1480,11 @@ function readMetaAdditionalRoots(meta?: Record<string, unknown> | null): string[
 }
 
 function readAdditionalDirectories(cwd: string, additionalDirectories?: string[],  meta?: Record<string, unknown> | null): string[] {
-    const rawDirectories = additionalDirectories ?? readMetaAdditionalRoots(meta);
-    if (!rawDirectories) {
-        return [];
+    const launchDirectories: unknown = JSON.parse(process.env["ACP_WRAPPER_CODEX_DIRS"] ?? "[]");
+    if (!Array.isArray(launchDirectories) || launchDirectories.some(root => typeof root !== "string")) {
+        throw RequestError.invalidParams(undefined, "ACP_WRAPPER_CODEX_DIRS must be an array of paths");
     }
-
+    const rawDirectories = [...(additionalDirectories ?? readMetaAdditionalRoots(meta) ?? []), ...launchDirectories];
     const directories: string[] = [];
     const seen = new Set<string>([cwd]);
     for (const directory of rawDirectories) {

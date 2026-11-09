@@ -270,9 +270,10 @@ describe.skipIf(baselineDir)("ACP scenarios", () => {
         version: "<version>",
         command: "<executable>",
       });
-      expect(normalize({ version: "9.9.9", command: "/usr/bin/node" }, cwd, session)).toEqual({
+      const otherNode = process.execPath === "/usr/bin/node" ? "/opt/other-node" : "/usr/bin/node";
+      expect(normalize({ version: "9.9.9", command: otherNode }, cwd, session)).toEqual({
         version: "9.9.9",
-        command: "/usr/bin/node",
+        command: otherNode,
       });
     });
 

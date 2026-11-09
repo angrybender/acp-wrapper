@@ -55,6 +55,9 @@ release guide in `docs/RELEASES.md` describes upstream infrastructure.
 `codex/` is a pinned source fork with its own package-lock, typecheck and Vitest
 suite; it keeps upstream formatting. Run `npm run typecheck` and relevant tests
 inside codex. Do not enable copied upstream release workflows. The root Claude
-package and default installer remain independent. Strict Codex drain requires
+package keeps its own build; the default installer packages both backends and
+the root launcher dispatches from an optional native agent path. Keep no-path
+Claude and standalone Codex compatibility. Native flags must affect ACP session
+settings as well as subprocess arguments. See docs/launcher.md. Strict Codex drain requires
 Linux /proc and real process verification; never infer successful stop from an
 empty terminal list or interpret app-server processId as a host OS PID.

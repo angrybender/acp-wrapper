@@ -14,6 +14,7 @@ import {logger} from "./Logger";
 import {CodexAppServerSupervisor} from "./app-server-recovery/CodexAppServerSupervisor";
 import {runLoginCommand} from "./login";
 import {runCodexCli} from "./CodexCli";
+import {codexLaunchOptions} from "./CodexLaunchOptions";
 import {prepareCodexHookConfig} from "./CodexHookConfig";
 import {CODEX_HOOKS_LIST_METHOD, CODEX_HOOKS_TRUST_METHOD} from "./CodexHookTrust";
 import {
@@ -97,11 +98,12 @@ if (process.argv[2] === "login") {
 
 function startAcpServer() {
     const codexPath = process.env["CODEX_PATH"];
-    const configString = process.env["CODEX_CONFIG"];
     const authRequestString = process.env["DEFAULT_AUTH_REQUEST"];
     const modelProvider = process.env["MODEL_PROVIDER"];
-    const config = configString ? JSON.parse(configString) : undefined;
+    const launch = codexLaunchOptions(process.argv.slice(2));
+    const config = launch.config;
     const hookConfig = prepareCodexHookConfig(config);
+    hookConfig.appServerStartupArgs.push(...launch.startupArgs);
     const parsedAuthRequest = authRequestString ? JSON.parse(authRequestString) : undefined;
     const defaultAuthRequest = parsedAuthRequest && isCodexAuthRequest(parsedAuthRequest) ? parsedAuthRequest : undefined;
 

@@ -54,7 +54,7 @@ def main():
         if args.test:
             run('npx', 'vitest', 'run', '--no-file-parallelism',
                 'src/__tests__/NativeWorkloads.test.ts', 'src/__tests__/OrchestratorBackground.test.ts',
-                'src/__tests__/CodexACPAgent/async-tasks.test.ts', cwd=source)
+                'src/__tests__/CodexACPAgent/async-tasks.test.ts', 'src/__tests__/CodexLaunchOptions.test.ts', cwd=source)
         installed = staging/'installed'
         installed.mkdir()
         for name in ('package.json', 'package-lock.json', 'LICENSE', 'NOTICE', 'README.md', 'README.upstream.md', 'UPSTREAM.json'):

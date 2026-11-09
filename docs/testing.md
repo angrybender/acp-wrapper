@@ -1,5 +1,46 @@
 # Проверки
 
+## Единый launcher с выбором нативного агента — 2026-11-09
+
+Прочитаны AGENTS.md обоих backend, docs/protocol.md, docs/codex.md,
+docs/testing.md, README обоих пакетов, installer и исходники CLI/режимов.
+Требования выбора и аргументов добавлены в [launcher.md](launcher.md).
+
+- Root build, lint и format прошли; Codex typecheck и bundle прошли.
+- Новые проверки launcher/Claude: **29 passed**. Проверены обе version-сигнатуры,
+  PATH/переименованный symlink/пробелы, literal argv и повторные flags, CLI
+  passthrough и exit code, отсутствие executable, несовместимые ACP-параметры.
+- Полный Codex suite: **1532 passed, 36 skipped**. Включены TOML/nested/array/
+  quoted-key overrides, приоритет CLI над environment config, режимы approvals,
+  yolo и объединение native writable roots с ACP roots. Смежный предварительный
+  прогон клиента/новых CLI-тестов дал 135 passed.
+- Полный Claude suite после переносимой проверки Node: **3351 passed,
+  33 skipped, 1 failed**. Осталось ранее описанное upstream-падение
+  tools.test.ts «picks up a rewrite that restored the modification time of the
+  file». Оно повторилось и отдельно (249 passed, 1 failed совместно с новыми
+  launcher-тестами). Исходники кеша и этот тест не менялись. Полный набор не
+  объявляется зелёным. Второй известный тест normalize исправлен: отличающийся
+  Node path выбирается с учётом фактического process.execPath, а не всегда
+  /usr/bin/node; нормализатор не изменён.
+- Настоящий `install.py --test` установил оба runtime в prefix/bin с пробелами.
+  В staging прошли **819 Claude/launcher tests, 10 skipped** и **71 Codex
+  focused tests**. Проверены обе provenance-записи, production dependencies,
+  отсутствие dist/tests, сохранение wrapper --version и native --version,
+  legacy --cli и отказ перезаписывать установленный prefix без изменения файлов.
+- `scripts/launcher-smoke.mjs` прошёл и из checkout, и через установленный
+  entry: реальные native Codex/Claude, ACP v1 initialize и background contract,
+  новая Codex-сессия с `--yolo` и mode=agent-full-access, штатный выход.
+  Использованы отдельные временные auth/config/cwd и локальный недоступный
+  endpoint; ни одного model prompt или запроса к платному провайдеру нет.
+- background-drain.patch пересобран относительно записанного upstream,
+  обновлён SHA256 в UPSTREAM.json; reverse --check прошёл.
+
+Рабочие настройки, существующие runtime на VM, авторизация и сессии не менялись.
+Проверки выполнялись на Linux/Node 22; Windows и model-backed выполнение здесь
+не заявляются. Python-installer запускался из обновлённого отдельного dev-venv.
+Временные staging/installation/auth/cwd/credential helpers и собственные процессы
+удалены после проверок; токен GitHub не записан в репозиторий или remote URL.
+
 ## Что выполняет `install.py --test`
 
 Installer копирует исходники текущего checkout в изолированный staging и запускает:
