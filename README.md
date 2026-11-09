@@ -21,7 +21,7 @@ Codex `--yolo` устанавливает также ACP mode `agent-full-access
 ```bash
 python3 install.py --agent codex --test \
   --prefix "$HOME/.local/share/codex-acp-wrapper-2.2.2-r2" \
-  --bin "$HOME/.local/bin/acp-codex-wrapper"
+  --bin "$HOME/.local/bin/acp-wrapper"
 ```
 
 Требования, supervision native процессов и ограничения —

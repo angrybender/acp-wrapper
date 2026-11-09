@@ -9,7 +9,7 @@ Install on the machine that runs the agent, from the repository root:
 ```bash
 python3 install.py --agent codex --test \
   --prefix "$HOME/.local/share/codex-acp-wrapper-2.2.2-r2" \
-  --bin "$HOME/.local/bin/acp-codex-wrapper"
+  --bin "$HOME/.local/bin/acp-wrapper"
 ```
 
 Node.js 22+, npm, Python 3 and Linux `/proc` are required for strict drain.
